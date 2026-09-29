@@ -11,8 +11,7 @@ const alternativeTerms = [
   "alternativo",
   "tipo original",
   "simil original",
-  "símil original",
-  "compatible con"
+  "símil original"
 ];
 
 const usedTerms = [
@@ -60,7 +59,7 @@ export function evaluateListing(
 
   if (listingBrand) {
     if (listingBrand === requestedBrand) {
-      score += 45;
+      score += 35;
       reasons.push("La marca del repuesto coincide con la requerida.");
     } else {
       rejectionReasons.push(
@@ -70,12 +69,12 @@ export function evaluateListing(
   }
 
   if (/\boriginal\b|\bgenuin[oa]\b/i.test(text)) {
-    score += 15;
+    score += 10;
     reasons.push("La publicación declara original/genuino.");
   }
 
   if (listing.oemCode) {
-    score += 20;
+    score += 15;
     reasons.push("Incluye código OEM.");
   }
 
@@ -100,8 +99,34 @@ export function evaluateListing(
     rejectionReasons.push("La presentación no es equivalente (unidad/par/kit).");
   }
 
+  const compatibility = listing.compatibility;
+  if (!compatibility || compatibility.status === "unknown") {
+    rejectionReasons.push(
+      "Compatibilidad con el vehículo no confirmada. No entra al precio automático."
+    );
+  } else if (compatibility.status === "incompatible") {
+    rejectionReasons.push("Mercado Libre indica que la pieza no es compatible con este vehículo.");
+  } else {
+    score += 25;
+    reasons.push(
+      compatibility.matchedVehicleName
+        ? `Compatibilidad confirmada: ${compatibility.matchedVehicleName}.`
+        : "Compatibilidad con el vehículo confirmada."
+    );
+  }
+
+  if (compatibility?.positionCompatible === false) {
+    rejectionReasons.push("La restricción de posición no coincide con la pieza buscada.");
+  }
+
+  if (compatibility?.reputationLevel === "RED") {
+    rejectionReasons.push(
+      "La compatibilidad tiene nivel RED por reclamos de incompatibilidad."
+    );
+  }
+
   const model = normalize(vehicle.model);
-  if (model && !text.includes(model)) {
+  if (model && !text.includes(model) && compatibility?.status !== "compatible") {
     score -= 10;
     reasons.push("El modelo no aparece explícitamente en título/descripción.");
   }
