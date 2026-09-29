@@ -13,6 +13,7 @@ export function buildQuoteDraft(
   const labor = extras?.labor ?? 0;
   const paint = extras?.paint ?? 0;
   const other = extras?.other ?? 0;
+  const bodyworkAndPaintSubtotal = labor + paint;
 
   return {
     vehicle,
@@ -20,7 +21,8 @@ export function buildQuoteDraft(
     partsSubtotal,
     labor,
     paint,
+    bodyworkAndPaintSubtotal,
     other,
-    total: partsSubtotal + labor + paint + other
+    total: partsSubtotal + bodyworkAndPaintSubtotal + other
   };
 }
