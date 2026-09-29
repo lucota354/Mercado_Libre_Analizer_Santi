@@ -3,8 +3,12 @@ export type VehicleInput = {
   model: string;
   year: number;
   version?: string;
+  engine?: string;
+  bodyType?: string;
+  transmission?: string;
   vin?: string;
   plate?: string;
+  catalogProductId?: string;
 };
 
 export type DamageInput = {
@@ -31,6 +35,26 @@ export type VisualCondition =
   | "probably_used"
   | "used";
 
+export type CompatibilityStatus = "compatible" | "incompatible" | "unknown";
+
+export type CompatibilitySource =
+  | "meli_seller"
+  | "meli_catalog"
+  | "meli_page_selector"
+  | "manual";
+
+export type CompatibilityEvidence = {
+  status: CompatibilityStatus;
+  source: CompatibilitySource;
+  matchedVehicleName?: string;
+  compatibleVehicleNames?: string[];
+  note?: string;
+  positionCompatible?: boolean;
+  reputationLevel?: "GREEN" | "YELLOW" | "RED" | string;
+  catalogCompatibilityCount?: number;
+  checkedAt?: string;
+};
+
 export type CandidateListing = {
   itemId: string;
   title: string;
@@ -43,6 +67,7 @@ export type CandidateListing = {
   description?: string;
   packageType?: "single" | "pair" | "kit";
   visualCondition?: VisualCondition;
+  compatibility?: CompatibilityEvidence;
 };
 
 export type EvaluationResult = {
