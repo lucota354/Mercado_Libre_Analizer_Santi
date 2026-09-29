@@ -8,7 +8,8 @@ const emptyVehicle: VehicleInput = {
   brand: "",
   model: "",
   year: new Date().getFullYear(),
-  version: ""
+  version: "",
+  engine: ""
 };
 
 const newDamage = (): DamageInput => ({
@@ -46,8 +47,8 @@ export default function HomePage() {
         <span className="eyebrow">V1 · Cotizador de repuestos</span>
         <h1>Mercado Libre Analyzer Santi</h1>
         <p>
-          Cargá un vehículo y todos los daños del caso. El sistema preparará una investigación
-          independiente por pieza y luego las consolidará en un único presupuesto.
+          Cargá un vehículo y todos los daños del caso. El sistema investiga cada pieza,
+          exige compatibilidad con el vehículo y luego consolida un único presupuesto.
         </p>
       </section>
 
@@ -60,7 +61,7 @@ export default function HomePage() {
           <span className="badge">Argentina · MLA</span>
         </div>
 
-        <div className="grid four">
+        <div className="grid vehicle">
           <label>
             Marca
             <input
@@ -75,7 +76,7 @@ export default function HomePage() {
           <label>
             Modelo
             <input
-              placeholder="208"
+              placeholder="206"
               value={vehicle.model}
               onChange={(event) => {
                 setPrepared(false);
@@ -97,7 +98,7 @@ export default function HomePage() {
           <label>
             Versión
             <input
-              placeholder="Allure"
+              placeholder="1.4 Active 75cv"
               value={vehicle.version ?? ""}
               onChange={(event) => {
                 setPrepared(false);
@@ -105,7 +106,23 @@ export default function HomePage() {
               }}
             />
           </label>
+          <label>
+            Motor
+            <input
+              placeholder="1.4"
+              value={vehicle.engine ?? ""}
+              onChange={(event) => {
+                setPrepared(false);
+                setVehicle({ ...vehicle, engine: event.target.value });
+              }}
+            />
+          </label>
         </div>
+
+        <p className="helper">
+          Estos datos se usarán también para el verificador de compatibilidad de Mercado Libre:
+          Marca → Modelo → Año → Versión → Motor.
+        </p>
       </section>
 
       <section className="card">
@@ -199,7 +216,7 @@ export default function HomePage() {
                   <span>✓ Argentina</span>
                   <span>✓ Original/OEM</span>
                   <span>✓ Nuevo</span>
-                  <span>✓ Compatible</span>
+                  <span>✓ Compatible confirmado</span>
                   <span>✓ Links auditables</span>
                 </div>
               </article>
@@ -209,9 +226,9 @@ export default function HomePage() {
       )}
 
       <section className="notice">
-        <strong>Siguiente integración:</strong> OAuth + búsqueda real en Mercado Libre. Esta pantalla
-        ya trabaja con múltiples piezas por caso para que el presupuesto completo no dependa de una
-        única búsqueda.
+        <strong>Regla crítica:</strong> si la compatibilidad con el vehículo queda como desconocida
+        o Mercado Libre indica “No es compatible”, esa publicación no entra en el cálculo
+        automático del presupuesto.
       </section>
     </main>
   );
