@@ -105,6 +105,7 @@ export type QuoteDraft = {
   partsSubtotal: number;
   labor: number;
   paint: number;
+  bodyworkAndPaintSubtotal: number;
   other: number;
   total: number;
 };
