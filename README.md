@@ -28,10 +28,13 @@ Crear un presupuesto completo a partir de:
 - [x] Motor robusto de precio con descarte de outliers.
 - [x] Interfaz inicial para cargar vehículo y múltiples daños.
 - [x] Esquema SQL inicial para Supabase.
+- [x] Motor de mano de obra por año: chapa/día, pintura/panel y mecánica/hora.
+- [x] Caso de regresión Peugeot 206 2006 = $3.380.000.
 - [ ] OAuth de Mercado Libre.
 - [ ] Búsqueda real en Mercado Libre Argentina.
 - [ ] Consulta de detalles y precio actual por publicación.
-- [ ] Compatibilidad exacta de autopartes.
+- [x] Arquitectura de compatibilidad exacta de autopartes.
+- [ ] Conexión real del verificador de compatibilidad con Mercado Libre.
 - [ ] Análisis visual de fotos.
 - [ ] Persistencia real en Supabase.
 - [ ] Generación de presupuesto PDF.
