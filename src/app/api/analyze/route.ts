@@ -81,9 +81,23 @@ export async function POST(request: Request) {
       const searchResults = [...searchMaps.values()];
       const items = await client.getItems(searchResults.map((result) => result.id));
       const searchById = new Map(searchResults.map((result) => [result.id, result]));
+      const itemById = new Map(items.map((item) => [item.id, item]));
+
+      // Never hide discovery results just because the item-detail endpoint did
+      // not return that particular listing. Keep a minimal candidate so the
+      // operator can see and open what Mercado Libre search actually found.
+      const candidateItems = searchResults.slice(0, 16).map((search) => {
+        return (
+          itemById.get(search.id) ?? {
+            id: search.id,
+            title: search.title,
+            permalink: search.permalink
+          }
+        );
+      });
 
       const candidates = await Promise.all(
-        items.slice(0, 12).map(async (item) => {
+        candidateItems.map(async (item) => {
           const search = searchById.get(item.id);
 
           const [priceResult, compatibility] = await Promise.all([
@@ -131,6 +145,8 @@ export async function POST(request: Request) {
         damage,
         plan,
         candidates,
+        foundCount: searchResults.length,
+        detailedCount: items.length,
         validCount: valid.length,
         priceSummary,
         purchaseReference,
