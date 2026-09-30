@@ -5,7 +5,7 @@ import { calculateWorkshopEstimate } from "../src/lib/pricing/workshop-estimate"
 import { calculateCustomerQuote } from "../src/lib/pricing/customer-quote";
 import { calculateRobustPrice } from "../src/lib/pricing/robust-price";
 import { evaluateListing } from "../src/lib/marketplace/evaluate-listing";
-import { createSearchPlan } from "../src/lib/marketplace/search-plan";
+import { canonicalizeVehicleBrand, createSearchPlan } from "../src/lib/marketplace/search-plan";
 
 describe("vehicle year input", () => {
   it("does not treat intermediate typing states as valid years", () => {
@@ -189,8 +189,8 @@ describe("autopart search plan", () => {
       }
     );
 
-    expect(plan.queries[0]).toBe("Paragolpe Trasero Nissan Sentra");
-    expect(plan.queries[1]).toBe("Paragolpe Nissan Sentra");
+    expect(plan.queries[0]).toBe("Paragolpe Trasero Sentra");
+    expect(plan.queries[1]).toBe("Paragolpe Trasero Nissan Sentra");
     expect(plan.queries).toContain("Paragolpe Trasero Nissan Sentra 2021");
   });
 });
@@ -225,5 +225,34 @@ describe("unknown item condition", () => {
 
     expect(result.valid).toBe(false);
     expect(result.rejectionReasons.join(" ")).toContain("Condición nuevo/usado no confirmada");
+  });
+});
+
+
+describe("vehicle brand typo tolerance", () => {
+  it("normalizes nissa to Nissan and still searches without relying on the brand", () => {
+    expect(canonicalizeVehicleBrand("nissa")).toBe("Nissan");
+
+    const plan = createSearchPlan(
+      {
+        brand: "nissa",
+        model: "sentra",
+        year: 2021,
+        version: "sr cvt",
+        engine: "2.0"
+      },
+      {
+        id: "damage-nissan",
+        partName: "paragolpe",
+        position: "trasero"
+      }
+    );
+
+    expect(plan.queries[0].toLowerCase()).toBe("paragolpe trasero sentra");
+    expect(
+      plan.queries.some((query) =>
+        query.toLowerCase().includes("paragolpe trasero nissan sentra")
+      )
+    ).toBe(true);
   });
 });
