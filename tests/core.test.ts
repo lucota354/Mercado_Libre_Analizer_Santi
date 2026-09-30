@@ -5,6 +5,7 @@ import { calculateWorkshopEstimate } from "../src/lib/pricing/workshop-estimate"
 import { calculateCustomerQuote } from "../src/lib/pricing/customer-quote";
 import { calculateRobustPrice } from "../src/lib/pricing/robust-price";
 import { evaluateListing } from "../src/lib/marketplace/evaluate-listing";
+import { createSearchPlan } from "../src/lib/marketplace/search-plan";
 
 describe("vehicle year input", () => {
   it("does not treat intermediate typing states as valid years", () => {
@@ -167,5 +168,62 @@ describe("listing filters", () => {
     );
 
     expect(result.valid).toBe(false);
+  });
+});
+
+
+describe("autopart search plan", () => {
+  it("starts broad so year ranges and missing trims do not hide listings", () => {
+    const plan = createSearchPlan(
+      {
+        brand: "Nissan",
+        model: "Sentra",
+        year: 2021,
+        version: "SR CVT",
+        engine: "2.0"
+      },
+      {
+        id: "damage-1",
+        partName: "Paragolpe",
+        position: "Trasero"
+      }
+    );
+
+    expect(plan.queries[0]).toBe("Paragolpe Trasero Nissan Sentra");
+    expect(plan.queries[1]).toBe("Paragolpe Nissan Sentra");
+    expect(plan.queries).toContain("Paragolpe Trasero Nissan Sentra 2021");
+  });
+});
+
+describe("unknown item condition", () => {
+  it("requires manual review instead of assuming the part is new", () => {
+    const result = evaluateListing(
+      {
+        itemId: "MLA4",
+        title: "Paragolpe Trasero Peugeot 206 Original",
+        url: "https://example.com",
+        price: 400000,
+        currency: "ARS",
+        brand: "Peugeot",
+        oemCode: "7410L6",
+        compatibility: {
+          status: "compatible",
+          source: "meli_seller"
+        }
+      },
+      {
+        brand: "Peugeot",
+        model: "206",
+        year: 2013
+      },
+      {
+        id: "damage-1",
+        partName: "Paragolpe",
+        position: "Trasero"
+      }
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.rejectionReasons.join(" ")).toContain("Condición nuevo/usado no confirmada");
   });
 });
