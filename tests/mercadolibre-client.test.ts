@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MercadoLibreClient, parseMarketplaceSearchHtml } from "../src/lib/marketplace/mercadolibre-client";
+import { MercadoLibreClient, parseMarketplaceProductHtml, parseMarketplaceSearchHtml } from "../src/lib/marketplace/mercadolibre-client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -199,6 +199,39 @@ describe("Mercado Libre web-search parsing", () => {
       id: "MLA1809163900",
       title: "Paragolpe Trasero Nissan Sentra 2020 2021 2022 2023 2024",
       price: 266220,
+      currencyId: "ARS"
+    });
+  });
+});
+
+
+describe("Mercado Libre product-page parsing", () => {
+  it("recovers the concrete MLA item id and price from an MLAU product page", () => {
+    const html = `
+      <html>
+        <head>
+          <meta property="og:title" content="Paragolpe Trasero Nissan Sentra 21/24 Original" />
+        </head>
+        <body>
+          <span>Nuevo</span>
+          <h1 class="ui-pdp-title">Paragolpe Trasero Nissan Sentra 21/24 Original</h1>
+          <span class="andes-money-amount__fraction">280.000</span>
+          <div>Marca Nissan</div>
+          <div>Número de pieza 850225EE0H1H</div>
+          <div>Publicación #1809163900</div>
+        </body>
+      </html>
+    `;
+
+    const result = parseMarketplaceProductHtml(
+      html,
+      "https://www.mercadolibre.com.ar/paragolpe-trasero-nissan-sentra-2124-original/up/MLAU4135228669"
+    );
+
+    expect(result).toMatchObject({
+      id: "MLA1809163900",
+      title: "Paragolpe Trasero Nissan Sentra 21/24 Original",
+      price: 280000,
       currencyId: "ARS"
     });
   });
