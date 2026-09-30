@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   CandidateListing,
   DamageInput,
@@ -74,6 +74,34 @@ export default function HomePage() {
   const [paintPanels, setPaintPanels] = useState(0);
   const [mechanicHours, setMechanicHours] = useState(0);
   const [other, setOther] = useState(0);
+  const [meliConnected, setMeliConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStatus() {
+      try {
+        const response = await fetch("/api/auth/mercadolibre/status", {
+          cache: "no-store"
+        });
+        const data = (await response.json()) as { connected?: boolean };
+        if (!cancelled) setMeliConnected(Boolean(data.connected));
+      } catch {
+        if (!cancelled) setMeliConnected(false);
+      }
+    }
+
+    loadStatus();
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("meli")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const laborRates = useMemo(
     () => getLaborRatesForVehicleYear(vehicle.year),
@@ -144,6 +172,26 @@ export default function HomePage() {
           valida originalidad, condición y compatibilidad, calcula el valor de los
           repuestos y completa la mano de obra según el año del vehículo.
         </p>
+      </section>
+
+      <section className="connectionBar">
+        <div>
+          <strong>Mercado Libre</strong>
+          <span>
+            {meliConnected === null
+              ? "Verificando conexión…"
+              : meliConnected
+                ? "Cuenta conectada y lista para analizar publicaciones."
+                : "Conectá tu cuenta para habilitar búsquedas y compatibilidades."}
+          </span>
+        </div>
+        {meliConnected ? (
+          <span className="status valid">CONECTADO</span>
+        ) : (
+          <a className="primary connectButton" href="/api/auth/mercadolibre/start">
+            Conectar Mercado Libre
+          </a>
+        )}
       </section>
 
       <section className="card">
@@ -295,6 +343,7 @@ export default function HomePage() {
           type="button"
           disabled={
             loading ||
+            meliConnected !== true ||
             !vehicle.brand ||
             !vehicle.model ||
             damages.every((damage) => !damage.partName.trim())
