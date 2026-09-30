@@ -219,6 +219,131 @@ export function parseMarketplaceSearchHtml(
   return [...results.values()].slice(0, 30);
 }
 
+function normalizeExternalResultUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const uddg = url.searchParams.get("uddg");
+    if (uddg) return decodeURIComponent(uddg);
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function userProductIdFromHref(href: string) {
+  const decoded = decodeURIComponent(href);
+  const match = decoded.match(/\bMLAU\d+\b/i);
+  return match ? match[0].toUpperCase() : null;
+}
+
+function publicationItemIdFromText(value: string) {
+  const match = value.match(/Publicaci[oó]n\s*#?\s*(\d{6,})/i);
+  return match ? "MLA" + match[1] : null;
+}
+
+function queryTitleLooksRelevant(title: string, query: string) {
+  const normalizedTitle = normalize(title);
+  const tokens = normalize(query)
+    .split(" ")
+    .filter((token) => token.length >= 4)
+    .filter((token) => !["original", "genuino", "genuina", "oem", "nuevo", "nueva"].includes(token));
+
+  if (!tokens.length) return true;
+  const matched = tokens.filter((token) => normalizedTitle.includes(token));
+  return matched.length >= Math.min(3, tokens.length);
+}
+
+export function parseMarketplaceProductHtml(
+  html: string,
+  sourceUrl: string
+): MarketplaceSearchItem | null {
+  const $ = cheerio.load(html);
+  const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+  const title =
+    $("h1.ui-pdp-title").first().text().trim() ||
+    $("meta[property='og:title']").attr("content")?.trim() ||
+    $("title").text().trim();
+
+  if (!title) return null;
+
+  let price: number | undefined;
+  const metaPrice =
+    $("meta[itemprop='price']").attr("content") ||
+    $("meta[property='product:price:amount']").attr("content");
+
+  if (metaPrice) {
+    const parsed = Number(String(metaPrice).replace(",", "."));
+    if (Number.isFinite(parsed) && parsed > 0) price = Math.round(parsed);
+  }
+
+  if (!price) {
+    const fraction = $(".andes-money-amount__fraction").first().text().trim();
+    price = parsePriceText(fraction);
+  }
+
+  if (!price) {
+    const jsonLd = $("script[type='application/ld+json']")
+      .map((_, element) => $(element).html())
+      .get();
+
+    for (const raw of jsonLd) {
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw) as { offers?: { price?: string | number }; price?: string | number };
+        const candidate = parsed.offers?.price ?? parsed.price;
+        if (candidate != null) {
+          const numeric = Number(candidate);
+          if (Number.isFinite(numeric) && numeric > 0) {
+            price = Math.round(numeric);
+            break;
+          }
+        }
+      } catch {
+        // Ignore invalid JSON-LD blocks.
+      }
+    }
+  }
+
+  const publicationId = publicationItemIdFromText(bodyText) || itemIdFromHref(sourceUrl);
+  const userProductId = userProductIdFromHref(sourceUrl);
+  const id = publicationId || userProductId;
+  if (!id) return null;
+
+  return {
+    id,
+    title,
+    permalink: sourceUrl,
+    price,
+    currencyId: "ARS"
+  };
+}
+
+function parseBingRssLinks(xml: string) {
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const results: Array<{ title: string; url: string }> = [];
+  $("item").each((_, element) => {
+    const item = $(element);
+    const title = item.find("title").first().text().trim();
+    const url = item.find("link").first().text().trim();
+    if (title && url) results.push({ title, url });
+  });
+  return results;
+}
+
+function parseDuckDuckGoLinks(html: string) {
+  const $ = cheerio.load(html);
+  const results: Array<{ title: string; url: string }> = [];
+  $("a.result__a, a[href]").each((_, element) => {
+    const anchor = $(element);
+    const href = anchor.attr("href");
+    const title = anchor.text().trim();
+    if (!href || !title) return;
+    const url = normalizeExternalResultUrl(href);
+    if (!/mercadolibre\.com\.ar/i.test(url)) return;
+    results.push({ title, url });
+  });
+  return results;
+}
 export class MercadoLibreApiError extends Error {
   constructor(
     public readonly status: number,
@@ -380,6 +505,129 @@ export class MercadoLibreClient implements MercadoLibreGateway {
     return parseMarketplaceSearchHtml(html);
   }
 
+  private async fetchMarketplaceProductPage(
+    url: string
+  ): Promise<MarketplaceSearchItem | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "es-AR,es;q=0.9,en;q=0.6",
+          "Cache-Control": "no-cache"
+        },
+        redirect: "follow",
+        cache: "no-store"
+      });
+
+      if (!response.ok) return null;
+      const html = await response.text();
+      return parseMarketplaceProductHtml(html, response.url || url);
+    } catch {
+      return null;
+    }
+  }
+
+  private async searchExternalIndex(
+    query: string
+  ): Promise<MarketplaceSearchItem[]> {
+    const searchQuery = "site:mercadolibre.com.ar " + query;
+    const discoveredLinks = new Map<string, { title: string; url: string }>();
+
+    const addLinks = (items: Array<{ title: string; url: string }>) => {
+      for (const item of items) {
+        const normalizedUrl = normalizeExternalResultUrl(item.url);
+        try {
+          const url = new URL(normalizedUrl);
+          if (!url.hostname.endsWith("mercadolibre.com.ar")) continue;
+
+          const isConcreteProduct =
+            /\/up\/MLAU\d+/i.test(url.pathname) ||
+            /\/p\/MLA\d+/i.test(url.pathname) ||
+            /MLA-\d{6,}/i.test(url.pathname);
+
+          if (!isConcreteProduct) continue;
+          if (!queryTitleLooksRelevant(item.title, query)) continue;
+
+          discoveredLinks.set(normalizedUrl, {
+            title: item.title,
+            url: normalizedUrl
+          });
+        } catch {
+          // Ignore malformed result URLs.
+        }
+
+        if (discoveredLinks.size >= 10) break;
+      }
+    };
+
+    try {
+      const response = await fetch(
+        "https://www.bing.com/search?format=rss&q=" + encodeURIComponent(searchQuery),
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36",
+            "Accept": "application/rss+xml,application/xml,text/xml,*/*",
+            "Accept-Language": "es-AR,es;q=0.9"
+          },
+          redirect: "follow",
+          cache: "no-store"
+        }
+      );
+      if (response.ok) addLinks(parseBingRssLinks(await response.text()));
+    } catch {
+      // Continue with the secondary index.
+    }
+
+    if (discoveredLinks.size < 3) {
+      try {
+        const response = await fetch("https://html.duckduckgo.com/html/", {
+          method: "POST",
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "text/html,*/*",
+            "Accept-Language": "es-AR,es;q=0.9"
+          },
+          body: new URLSearchParams({ q: searchQuery }).toString(),
+          redirect: "follow",
+          cache: "no-store"
+        });
+        if (response.ok) addLinks(parseDuckDuckGoLinks(await response.text()));
+      } catch {
+        // Best-effort fallback.
+      }
+    }
+
+    const linkResults = [...discoveredLinks.values()].slice(0, 8);
+    if (!linkResults.length) return [];
+
+    const pages = await Promise.all(
+      linkResults.map(async (result) => {
+        const parsed = await this.fetchMarketplaceProductPage(result.url);
+        if (parsed) return parsed;
+
+        const userProductId = userProductIdFromHref(result.url);
+        const itemId = itemIdFromHref(result.url);
+        if (!userProductId && !itemId) return null;
+
+        return {
+          id: itemId || userProductId!,
+          title: result.title,
+          permalink: result.url,
+          currencyId: "ARS"
+        } satisfies MarketplaceSearchItem;
+      })
+    );
+
+    return pages.filter(
+      (item): item is MarketplaceSearchItem => Boolean(item)
+    );
+  }
   /**
    * Hybrid discovery:
    * 1. Mercado Libre web listings: includes traditional/non-catalog parts.
@@ -419,6 +667,14 @@ export class MercadoLibreClient implements MercadoLibreGateway {
 
     if (webResult.status === "fulfilled") add(webResult.value);
     if (catalogResult.status === "fulfilled") add(catalogResult.value);
+
+    if (merged.size < 5) {
+      try {
+        add(await this.searchExternalIndex(query));
+      } catch {
+        // Discovery must degrade gracefully.
+      }
+    }
 
     return [...merged.values()].slice(0, 30);
   }
