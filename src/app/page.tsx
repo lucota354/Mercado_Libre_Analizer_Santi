@@ -10,6 +10,7 @@ import type {
 } from "@/lib/domain/types";
 import { getLaborRatesForVehicleYear } from "@/lib/pricing/labor-rates";
 import { calculateWorkshopEstimate } from "@/lib/pricing/workshop-estimate";
+import { parseVehicleYear } from "@/lib/validation/vehicle-year";
 
 type CandidateResult = {
   listing: CandidateListing;
@@ -75,6 +76,7 @@ export default function HomePage() {
   const [mechanicHours, setMechanicHours] = useState(0);
   const [other, setOther] = useState(0);
   const [meliConnected, setMeliConnected] = useState<boolean | null>(null);
+  const [yearInput, setYearInput] = useState(String(emptyVehicle.year));
 
   useEffect(() => {
     let cancelled = false;
@@ -103,9 +105,17 @@ export default function HomePage() {
     };
   }, []);
 
+  const validVehicleYear = useMemo(
+    () => parseVehicleYear(yearInput),
+    [yearInput]
+  );
+
   const laborRates = useMemo(
-    () => getLaborRatesForVehicleYear(vehicle.year),
-    [vehicle.year]
+    () =>
+      validVehicleYear === null
+        ? null
+        : getLaborRatesForVehicleYear(validVehicleYear),
+    [validVehicleYear]
   );
 
   const partsQuoted = useMemo(
@@ -119,15 +129,24 @@ export default function HomePage() {
 
   const workshop = useMemo(
     () =>
-      calculateWorkshopEstimate({
-        vehicleYear: vehicle.year,
-        partsBodywork: partsQuoted,
-        bodyworkDays,
-        paintPanels,
-        mechanicHours,
-        other
-      }),
-    [vehicle.year, partsQuoted, bodyworkDays, paintPanels, mechanicHours, other]
+      validVehicleYear === null
+        ? null
+        : calculateWorkshopEstimate({
+            vehicleYear: validVehicleYear,
+            partsBodywork: partsQuoted,
+            bodyworkDays,
+            paintPanels,
+            mechanicHours,
+            other
+          }),
+    [
+      validVehicleYear,
+      partsQuoted,
+      bodyworkDays,
+      paintPanels,
+      mechanicHours,
+      other
+    ]
   );
 
   const updateDamage = (id: string, patch: Partial<DamageInput>) => {
@@ -230,12 +249,27 @@ export default function HomePage() {
             Año
             <input
               type="number"
-              value={vehicle.year}
+              min="1900"
+              max="2100"
+              inputMode="numeric"
+              value={yearInput}
+              aria-invalid={validVehicleYear === null}
               onChange={(event) => {
+                const nextValue = event.target.value;
                 setAnalysis(null);
-                setVehicle({ ...vehicle, year: Number(event.target.value) });
+                setYearInput(nextValue);
+
+                const parsed = parseVehicleYear(nextValue);
+                if (parsed !== null) {
+                  setVehicle((current) => ({ ...current, year: parsed }));
+                }
               }}
             />
+            {validVehicleYear === null && (
+              <small className="fieldError">
+                Ingresá un año de 4 dígitos entre 1900 y 2100.
+              </small>
+            )}
           </label>
           <label>
             Versión
@@ -261,12 +295,18 @@ export default function HomePage() {
           </label>
         </div>
 
-        <div className="rateBar">
-          <strong>Tarifa automática para {vehicle.year}</strong>
-          <span>Chapa {money.format(laborRates.bodyworkPerDay)}/día</span>
-          <span>Pintura {money.format(laborRates.paintPerPanel)}/panel</span>
-          <span>Mecánica {money.format(laborRates.mechanicPerHour)}/hora</span>
-        </div>
+        {laborRates && validVehicleYear !== null ? (
+          <div className="rateBar">
+            <strong>Tarifa automática para {validVehicleYear}</strong>
+            <span>Chapa {money.format((laborRates?.bodyworkPerDay ?? 0))}/día</span>
+            <span>Pintura {money.format((laborRates?.paintPerPanel ?? 0))}/panel</span>
+            <span>Mecánica {money.format((laborRates?.mechanicPerHour ?? 0))}/hora</span>
+          </div>
+        ) : (
+          <div className="rateBar rateBarWarning">
+            <strong>Completá un año válido para calcular la mano de obra.</strong>
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -344,6 +384,7 @@ export default function HomePage() {
           disabled={
             loading ||
             meliConnected !== true ||
+            validVehicleYear === null ||
             !vehicle.brand ||
             !vehicle.model ||
             damages.every((damage) => !damage.partName.trim())
@@ -471,8 +512,8 @@ export default function HomePage() {
               onChange={(event) => setBodyworkDays(numberValue(event.target.value))}
             />
             <small>
-              {bodyworkDays} × {money.format(laborRates.bodyworkPerDay)} ={" "}
-              {money.format(workshop.bodyworkSubtotal)}
+              {bodyworkDays} × {money.format((laborRates?.bodyworkPerDay ?? 0))} ={" "}
+              {money.format((workshop?.bodyworkSubtotal ?? 0))}
             </small>
           </label>
           <label>
@@ -485,8 +526,8 @@ export default function HomePage() {
               onChange={(event) => setPaintPanels(numberValue(event.target.value))}
             />
             <small>
-              {paintPanels} × {money.format(laborRates.paintPerPanel)} ={" "}
-              {money.format(workshop.paintSubtotal)}
+              {paintPanels} × {money.format((laborRates?.paintPerPanel ?? 0))} ={" "}
+              {money.format((workshop?.paintSubtotal ?? 0))}
             </small>
           </label>
           <label>
@@ -499,8 +540,8 @@ export default function HomePage() {
               onChange={(event) => setMechanicHours(numberValue(event.target.value))}
             />
             <small>
-              {mechanicHours} × {money.format(laborRates.mechanicPerHour)} ={" "}
-              {money.format(workshop.mechanicSubtotal)}
+              {mechanicHours} × {money.format((laborRates?.mechanicPerHour ?? 0))} ={" "}
+              {money.format((workshop?.mechanicSubtotal ?? 0))}
             </small>
           </label>
           <label>
@@ -522,15 +563,15 @@ export default function HomePage() {
           </div>
           <div>
             <span>Mano de obra chapa</span>
-            <strong>{money.format(workshop.bodyworkSubtotal)}</strong>
+            <strong>{money.format((workshop?.bodyworkSubtotal ?? 0))}</strong>
           </div>
           <div>
             <span>Mano de obra pintura</span>
-            <strong>{money.format(workshop.paintSubtotal)}</strong>
+            <strong>{money.format((workshop?.paintSubtotal ?? 0))}</strong>
           </div>
           <div>
             <span>Mano de obra mecánica</span>
-            <strong>{money.format(workshop.mechanicSubtotal)}</strong>
+            <strong>{money.format((workshop?.mechanicSubtotal ?? 0))}</strong>
           </div>
           <div>
             <span>Otros</span>
@@ -538,7 +579,7 @@ export default function HomePage() {
           </div>
           <div className="grandTotal">
             <span>TOTAL PRESUPUESTADO</span>
-            <strong>{money.format(workshop.total)}</strong>
+            <strong>{money.format((workshop?.total ?? 0))}</strong>
           </div>
         </div>
       </section>
