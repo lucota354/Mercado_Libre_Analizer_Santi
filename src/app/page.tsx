@@ -20,6 +20,8 @@ type CandidateResult = {
 type AnalysisGroup = {
   damage: DamageInput;
   candidates: CandidateResult[];
+  foundCount?: number;
+  detailedCount?: number;
   validCount: number;
   priceSummary: PriceSummary | null;
   purchaseReference: number | null;
@@ -416,7 +418,8 @@ export default function HomePage() {
                       {group.damage.partName} {group.damage.position}
                     </h3>
                     <p>
-                      {group.validCount} publicación/es pasan todos los filtros.
+                      {group.foundCount ?? group.candidates.length} publicación/es encontradas ·{" "}
+                      {group.validCount} pasan todos los filtros.
                     </p>
                   </div>
                   <div className="quoteNumbers">
