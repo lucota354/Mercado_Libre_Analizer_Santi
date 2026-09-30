@@ -78,6 +78,7 @@ export default function HomePage() {
   const [mechanicHours, setMechanicHours] = useState(0);
   const [other, setOther] = useState(0);
   const [meliConnected, setMeliConnected] = useState<boolean | null>(null);
+  const [searchScraperConfigured, setSearchScraperConfigured] = useState<boolean | null>(null);
   const [yearInput, setYearInput] = useState(String(emptyVehicle.year));
 
   useEffect(() => {
@@ -88,8 +89,11 @@ export default function HomePage() {
         const response = await fetch("/api/auth/mercadolibre/status", {
           cache: "no-store"
         });
-        const data = (await response.json()) as { connected?: boolean };
-        if (!cancelled) setMeliConnected(Boolean(data.connected));
+        const data = (await response.json()) as { connected?: boolean; searchScraperConfigured?: boolean };
+        if (!cancelled) {
+          setMeliConnected(Boolean(data.connected));
+          setSearchScraperConfigured(Boolean(data.searchScraperConfigured));
+        }
       } catch {
         if (!cancelled) setMeliConnected(false);
       }
@@ -201,13 +205,17 @@ export default function HomePage() {
           <span>
             {meliConnected === null
               ? "Verificando conexión…"
-              : meliConnected
-                ? "Cuenta conectada y lista para analizar publicaciones."
-                : "Conectá tu cuenta para habilitar búsquedas y compatibilidades."}
+              : meliConnected && searchScraperConfigured
+                ? "Cuenta conectada y búsqueda robusta activa."
+                : meliConnected
+                  ? "Cuenta conectada. Falta configurar la búsqueda robusta para obtener publicaciones reales."
+                  : "Conectá tu cuenta para habilitar búsquedas y compatibilidades."}
           </span>
         </div>
         {meliConnected ? (
-          <span className="status valid">CONECTADO</span>
+          <span className={searchScraperConfigured ? "status valid" : "status pending"}>
+            {searchScraperConfigured ? "CONECTADO" : "FALTA SCRAPER"}
+          </span>
         ) : (
           <a className="primary connectButton" href="/api/auth/mercadolibre/start">
             Conectar Mercado Libre
