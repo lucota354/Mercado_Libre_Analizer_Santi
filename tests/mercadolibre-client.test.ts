@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MercadoLibreClient } from "../src/lib/marketplace/mercadolibre-client";
+import { MercadoLibreClient, parseMarketplaceSearchHtml } from "../src/lib/marketplace/mercadolibre-client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -170,5 +170,36 @@ describe("MercadoLibreClient current discovery flow", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe("MLA100");
+  });
+});
+
+
+describe("Mercado Libre web-search parsing", () => {
+  it("extracts listing id, title, price and link from a search card", () => {
+    const html = `
+      <ol>
+        <li class="ui-search-layout__item">
+          <div class="poly-card">
+            <a
+              class="poly-component__title"
+              href="https://www.mercadolibre.com.ar/paragolpe-trasero-nissan-sentra/up/MLAU123?wid=MLA1809163900"
+            >
+              Paragolpe Trasero Nissan Sentra 2020 2021 2022 2023 2024
+            </a>
+            <span class="andes-money-amount__fraction">266.220</span>
+          </div>
+        </li>
+      </ol>
+    `;
+
+    const results = parseMarketplaceSearchHtml(html);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      id: "MLA1809163900",
+      title: "Paragolpe Trasero Nissan Sentra 2020 2021 2022 2023 2024",
+      price: 266220,
+      currencyId: "ARS"
+    });
   });
 });
