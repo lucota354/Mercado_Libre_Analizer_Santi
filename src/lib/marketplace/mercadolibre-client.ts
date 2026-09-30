@@ -1,3 +1,4 @@
+import * as cheerio from "cheerio";
 import type {
   CandidateListing,
   CompatibilityEvidence,
@@ -108,6 +109,116 @@ export function attributeValue(item: MeliItem, ids: string[]) {
   return attr?.value_name ?? attr?.values?.[0]?.name ?? undefined;
 }
 
+
+function searchSlug(query: string) {
+  return normalize(query)
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function parsePriceText(value?: string | null) {
+  if (!value) return undefined;
+  const digits = value.replace(/[^0-9]/g, "");
+  if (!digits) return undefined;
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function itemIdFromHref(href: string) {
+  try {
+    const url = new URL(href, "https://www.mercadolibre.com.ar");
+    const wid = url.searchParams.get("wid");
+    if (wid && /^MLA\d+$/i.test(wid)) return wid.toUpperCase();
+  } catch {
+    // Continue with regex extraction.
+  }
+
+  const decoded = decodeURIComponent(href);
+  const match = decoded.match(/\bMLA-?(\d{6,})\b/i);
+  return match ? `MLA${match[1]}` : null;
+}
+
+export function parseMarketplaceSearchHtml(
+  html: string
+): MarketplaceSearchItem[] {
+  const $ = cheerio.load(html);
+  const results = new Map<string, MarketplaceSearchItem>();
+
+  const cardSelectors = [
+    ".ui-search-layout__item",
+    ".poly-card",
+    "li.ui-search-layout__item",
+    "[class*='poly-card']"
+  ];
+
+  $(cardSelectors.join(",")).each((_, element) => {
+    const card = $(element);
+    const anchor = card
+      .find(
+        "a.poly-component__title, a.ui-search-link, a[href*='mercadolibre.com.ar']"
+      )
+      .filter((__, link) => Boolean($(link).attr("href")))
+      .first();
+
+    const href = anchor.attr("href");
+    if (!href) return;
+
+    const itemId = itemIdFromHref(href);
+    if (!itemId || results.has(itemId)) return;
+
+    const title =
+      anchor.text().trim() ||
+      card.find("h2, h3, [class*='title']").first().text().trim() ||
+      itemId;
+
+    const fraction = card
+      .find(".andes-money-amount__fraction")
+      .first()
+      .text()
+      .trim();
+    const price = parsePriceText(fraction);
+
+    results.set(itemId, {
+      id: itemId,
+      title,
+      permalink: href,
+      price,
+      currencyId: "ARS"
+    });
+  });
+
+  // Defensive fallback for markup changes: collect links containing a concrete
+  // MLA item ID or a wid query parameter, even when the card class changed.
+  if (results.size === 0) {
+    $("a[href]").each((_, element) => {
+      const anchor = $(element);
+      const href = anchor.attr("href");
+      if (!href) return;
+
+      const itemId = itemIdFromHref(href);
+      if (!itemId || results.has(itemId)) return;
+
+      const title = anchor.text().trim();
+      if (!title) return;
+
+      const container = anchor.closest("li, article, div");
+      const price = parsePriceText(
+        container.find(".andes-money-amount__fraction").first().text().trim()
+      );
+
+      results.set(itemId, {
+        id: itemId,
+        title,
+        permalink: href,
+        price,
+        currencyId: "ARS"
+      });
+    });
+  }
+
+  return [...results.values()].slice(0, 30);
+}
+
 export class MercadoLibreApiError extends Error {
   constructor(
     public readonly status: number,
@@ -156,23 +267,9 @@ export class MercadoLibreClient implements MercadoLibreGateway {
     return response.json() as Promise<T>;
   }
 
-  /**
-   * Marketplace search is a public Mercado Libre resource. Do not attach the
-   * OAuth bearer token here: an app with restricted/minimal scopes can receive
-   * 403 before Mercado Libre evaluates the otherwise-public query.
-   */
-  /**
-   * Mercado Libre retired/blocked the old free-text marketplace search
-   * /sites/MLA/search?q=... for general discovery. Current V1 discovery uses
-   * the documented catalog flow:
-   *
-   *   /products/search?q=...
-   *      -> /products/{product_id}/items
-   *
-   * The second endpoint returns listings from all sellers competing on that
-   * product page, including item_id, price and condition.
-   */
-  async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
+  private async searchCatalog(
+    query: string
+  ): Promise<MarketplaceSearchItem[]> {
     const search = await this.request<{
       results?: CatalogProductSearchResult[];
     }>(
@@ -190,9 +287,6 @@ export class MercadoLibreClient implements MercadoLibreGateway {
       if (discovered.size >= 20) break;
 
       const productIds = [product.id];
-
-      // If the search returned a parent/umbrella product, its direct items may
-      // be empty. Product detail lets us inspect child product IDs as fallback.
       let detail: CatalogProductDetail | null = null;
 
       try {
@@ -237,8 +331,6 @@ export class MercadoLibreClient implements MercadoLibreGateway {
             if (discovered.size >= 20) break;
           }
         } catch {
-          // Some product pages may not expose their competitors to this app.
-          // In that case keep the current buy-box winner as a usable candidate.
           const winner =
             productId === product.id ? detail?.buy_box_winner : undefined;
 
@@ -256,6 +348,79 @@ export class MercadoLibreClient implements MercadoLibreGateway {
     }
 
     return [...discovered.values()].slice(0, 20);
+  }
+
+  private async searchMarketplaceWeb(
+    query: string
+  ): Promise<MarketplaceSearchItem[]> {
+    const slug = searchSlug(query);
+    if (!slug) return [];
+
+    const response = await fetch(
+      `https://listado.mercadolibre.com.ar/${encodeURIComponent(slug)}`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+          "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Language": "es-AR,es;q=0.9,en;q=0.6",
+          "Cache-Control": "no-cache"
+        },
+        redirect: "follow",
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const html = await response.text();
+    return parseMarketplaceSearchHtml(html);
+  }
+
+  /**
+   * Hybrid discovery:
+   * 1. Mercado Libre web listings: includes traditional/non-catalog parts.
+   * 2. Official catalog API: adds catalog-linked sellers and structured data.
+   *
+   * Autoparts are often not fully represented in catalog, so using only
+   * /products/search can incorrectly return zero marketplace publications.
+   */
+  async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
+    const [webResult, catalogResult] = await Promise.allSettled([
+      this.searchMarketplaceWeb(query),
+      this.searchCatalog(query)
+    ]);
+
+    const merged = new Map<string, MarketplaceSearchItem>();
+
+    const add = (items: MarketplaceSearchItem[]) => {
+      for (const item of items) {
+        const existing = merged.get(item.id);
+        if (!existing) {
+          merged.set(item.id, item);
+          continue;
+        }
+
+        merged.set(item.id, {
+          ...existing,
+          title:
+            existing.title && existing.title !== existing.id
+              ? existing.title
+              : item.title,
+          permalink: existing.permalink || item.permalink,
+          price: existing.price ?? item.price,
+          currencyId: existing.currencyId ?? item.currencyId
+        });
+      }
+    };
+
+    if (webResult.status === "fulfilled") add(webResult.value);
+    if (catalogResult.status === "fulfilled") add(catalogResult.value);
+
+    return [...merged.values()].slice(0, 30);
   }
 
   async getItems(ids: string[]): Promise<MeliItem[]> {
