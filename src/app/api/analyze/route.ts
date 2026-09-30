@@ -17,6 +17,7 @@ type RequestBody = {
 };
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -66,7 +67,18 @@ export async function POST(request: Request) {
       const plan = createSearchPlan(body.vehicle, damage);
       const searchMaps = new Map<
         string,
-        { id: string; title: string; permalink: string; price?: number; currencyId?: string }
+        {
+          id: string;
+          title: string;
+          permalink: string;
+          price?: number;
+          currencyId?: string;
+          condition?: string;
+          brand?: string;
+          description?: string;
+          oemCode?: string;
+          source?: string;
+        }
       >();
 
       for (const query of plan.queries.slice(0, 4)) {
@@ -100,14 +112,29 @@ export async function POST(request: Request) {
         candidateItems.map(async (item) => {
           const search = searchById.get(item.id);
 
+          const apiItemId = /^MLA\d+$/i.test(item.id);
+
           const [priceResult, compatibility] = await Promise.all([
-            client
-              .getSalePrice(item.id)
-              .catch(() => ({
-                amount: Number(search?.price ?? 0),
-                currencyId: search?.currencyId ?? "ARS"
-              })),
-            client.getItemCompatibilityEvidence(item.id, body.vehicle)
+            apiItemId
+              ? client
+                  .getSalePrice(item.id)
+                  .catch(() => ({
+                    amount: Number(search?.price ?? 0),
+                    currencyId: search?.currencyId ?? "ARS"
+                  }))
+              : Promise.resolve({
+                  amount: Number(search?.price ?? 0),
+                  currencyId: search?.currencyId ?? "ARS"
+                }),
+            apiItemId
+              ? client.getItemCompatibilityEvidence(item.id, body.vehicle)
+              : Promise.resolve({
+                  status: "unknown" as const,
+                  source: "manual" as const,
+                  checkedAt: new Date().toISOString(),
+                  note:
+                    "Publicación descubierta por búsqueda web; compatibilidad pendiente de validación."
+                })
           ]);
 
           const listing = client.toCandidateListing(
@@ -116,6 +143,14 @@ export async function POST(request: Request) {
             compatibility,
             search?.permalink
           );
+
+          // Search scrapers can know more than the item API for traditional
+          // listings. Preserve those public fields instead of discarding them.
+          listing.condition = listing.condition ?? search?.condition;
+          listing.brand = listing.brand ?? search?.brand;
+          listing.oemCode = listing.oemCode ?? search?.oemCode;
+          listing.description = listing.description ?? search?.description;
+
           const evaluation = evaluateListing(listing, body.vehicle, damage);
 
           return { listing, evaluation };
