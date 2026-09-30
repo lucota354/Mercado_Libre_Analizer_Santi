@@ -2,64 +2,50 @@
 
 Sistema para cotizar reparaciones de vehículos usando publicaciones de repuestos de Mercado Libre Argentina como evidencia de mercado.
 
-## Objetivo
+## Qué hace
 
-Crear un presupuesto completo a partir de:
+1. Carga el vehículo: marca, modelo, año, versión y motor.
+2. Permite agregar múltiples piezas/daños dentro del mismo caso.
+3. Genera varias búsquedas por pieza en Mercado Libre Argentina.
+4. Deduplica publicaciones.
+5. Consulta detalle actual de ítems mediante `/items/bulk`.
+6. Consulta precio de venta actual mediante `/items/{id}/sale_price`.
+7. Consulta compatibilidades de autopartes.
+8. Exige originalidad/nuevo/compatibilidad antes de aceptar una publicación.
+9. Calcula costo de compra confiable.
+10. Aplica una política inicial configurable de cotización al cliente.
+11. Calcula mano de obra por año:
+    - chapa por día;
+    - pintura por panel;
+    - mecánica por hora.
+12. Consolida repuestos + mano de obra + otros en un presupuesto.
 
-1. Vehículo: marca, modelo, año y versión.
-2. Uno o más daños/repuestos.
-3. Búsqueda de publicaciones de Argentina.
-4. Filtro de compatibilidad, originalidad y condición.
-5. Exclusión de alternativos, usados y resultados dudosos.
-6. Cálculo robusto de precio de referencia por pieza.
-7. Suma de repuestos + mano de obra + pintura + otros trabajos.
-8. Conservación de links para auditoría.
+## Estado
 
-> La unidad de trabajo es un **caso/presupuesto con N daños**, no una búsqueda individual.
+### V1 funcional en desarrollo
 
-## Estado actual
-
-### V1 — Base iniciada
-
-- [x] Arquitectura inicial.
-- [x] Modelo de dominio para vehículos, daños y publicaciones.
-- [x] Generador de búsquedas por pieza.
-- [x] Reglas iniciales para original/nuevo.
-- [x] Motor robusto de precio con descarte de outliers.
-- [x] Interfaz inicial para cargar vehículo y múltiples daños.
-- [x] Esquema SQL inicial para Supabase.
-- [x] Motor de mano de obra por año: chapa/día, pintura/panel y mecánica/hora.
-- [x] Caso de regresión Peugeot 206 2006 = $3.380.000.
-- [ ] OAuth de Mercado Libre.
-- [ ] Búsqueda real en Mercado Libre Argentina.
-- [ ] Consulta de detalles y precio actual por publicación.
-- [x] Arquitectura de compatibilidad exacta de autopartes.
-- [ ] Conexión real del verificador de compatibilidad con Mercado Libre.
-- [ ] Análisis visual de fotos.
+- [x] Arquitectura multi-pieza.
+- [x] Motor de búsqueda.
+- [x] Cliente real de Mercado Libre.
+- [x] `/items/bulk` para detalle múltiple.
+- [x] `sale_price` para precio vigente.
+- [x] Catálogo de vehículos `MLA-CARS_AND_VANS`.
+- [x] Lectura de compatibilidades de autopartes.
+- [x] Reglas de originalidad/nuevo.
+- [x] Compatibilidad como filtro obligatorio.
+- [x] Motor robusto de precios.
+- [x] Capa separada de precio al cliente.
+- [x] Mano de obra por año.
+- [x] UI integrada de repuestos + mano de obra.
+- [x] Esquema SQL de Supabase.
+- [x] CI con typecheck + production build.
+- [ ] Automatización de navegador para el selector web cuando la API devuelve compatibilidad de catálogo resumida.
+- [ ] Análisis visual de fotos para detectar piezas usadas disfrazadas de nuevas.
 - [ ] Persistencia real en Supabase.
-- [ ] Generación de presupuesto PDF.
+- [ ] PDF final de valuación.
+- [ ] OAuth persistente/refresh token.
 
-## Reglas principales
-
-- Solo Mercado Libre Argentina (site `MLA`).
-- Si se pide original, "compatible con" o "tipo original" no alcanza.
-- La marca del repuesto debe coincidir con la requerida o existir evidencia OEM suficiente.
-- Una publicación declarada "nueva" puede ser descartada si texto o imágenes muestran uso.
-- Se comparan productos equivalentes: unidad con unidad, kit con kit, par con par.
-- Cada pieza conserva las publicaciones usadas para justificar el valor.
-- Si no hay evidencia suficiente, el sistema devuelve "requiere revisión manual" y no inventa un precio.
-
-Más detalle en `docs/BUSINESS_RULES.md`.
-
-## Stack
-
-- Next.js 16 + React 19
-- TypeScript
-- Supabase/PostgreSQL
-- Mercado Libre API
-- IA de texto/visión en etapas posteriores
-
-## Ejecutar localmente
+## Configuración
 
 ```bash
 npm install
@@ -67,12 +53,97 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Abrir `http://localhost:3000`.
+La integración necesita un access token válido de Mercado Libre:
 
-## Variables de entorno
+```env
+MELI_ACCESS_TOKEN=...
+```
 
-Ver `.env.example`. Las credenciales de Mercado Libre nunca deben ir al frontend ni subirse al repo.
+Las credenciales nunca deben llegar al navegador.
 
-## Próximo paso
+## API interna
 
-Conectar OAuth de Mercado Libre y reemplazar el modo de preparación de búsquedas por resultados reales de `MLA`, manteniendo el motor de validación desacoplado para poder probarlo sin depender de la API.
+### `POST /api/analyze`
+
+Entrada:
+
+```json
+{
+  "vehicle": {
+    "brand": "Peugeot",
+    "model": "206",
+    "year": 2013,
+    "version": "1.4 Active 75cv",
+    "engine": "1.4"
+  },
+  "damages": [
+    {
+      "id": "1",
+      "partName": "Paragolpe",
+      "position": "Trasero"
+    }
+  ]
+}
+```
+
+Devuelve por pieza:
+
+- publicaciones analizadas;
+- precio actual;
+- marca/OEM;
+- compatibilidad;
+- score;
+- motivo de descarte;
+- costo confiable;
+- precio sugerido al cliente.
+
+### `POST /api/vehicle-values`
+
+Expone los valores del catálogo de vehículos para construir selectores Marca → Modelo → Año → Versión → Motor.
+
+### `GET /api/health`
+
+Indica si la aplicación está activa y si existe `MELI_ACCESS_TOKEN`.
+
+## Mano de obra
+
+Tarifas iniciales:
+
+| Año | Chapa / día | Pintura / panel | Mecánica / hora |
+| --- | ---: | ---: | ---: |
+| 2015+ | $200.000 | $200.000 | $100.000 |
+| 2010-2014 | $190.000 | $190.000 | $90.000 |
+| 2002-2009 | $180.000 | $180.000 | $80.000 |
+| <=2001 | $170.000 | $170.000 | $70.000 |
+
+El ejemplo real Peugeot 206 año 2006 queda como caso de regresión:
+
+```text
+Repuestos: $1.600.000
+Chapa: 3 × $180.000 = $540.000
+Pintura: 6 × $180.000 = $1.080.000
+Mecánica: 2 × $80.000 = $160.000
+TOTAL: $3.380.000
+```
+
+## Documentación
+
+- `docs/BUSINESS_RULES.md`
+- `docs/COMPATIBILITY.md`
+- `docs/LABOR_RATES.md`
+- `docs/PRICING_CALIBRATION.md`
+- `docs/REFERENCE_CASE_PEUGEOT_206_2013.md`
+
+## Principio de seguridad del cálculo
+
+Una publicación sólo puede entrar automáticamente al pricing si cumple:
+
+```text
+PIEZA CORRECTA
+AND NUEVA
+AND ORIGINAL/OEM
+AND PRESENTACIÓN COMPARABLE
+AND COMPATIBILIDAD CONFIRMADA
+```
+
+Si la compatibilidad queda `unknown`, se conserva el link pero no se usa el precio automáticamente.
