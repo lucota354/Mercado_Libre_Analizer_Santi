@@ -261,3 +261,21 @@ button:disabled { opacity: .45; cursor: not-allowed; }
     flex-direction: column;
   }
 }
+
+
+input[aria-invalid="true"] {
+  border-color: #f04438;
+  box-shadow: 0 0 0 3px rgba(240, 68, 56, .08);
+}
+
+.fieldError {
+  color: #b42318;
+  font-size: .74rem;
+  font-weight: 650;
+}
+
+.rateBarWarning {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
