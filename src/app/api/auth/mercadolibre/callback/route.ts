@@ -1,31 +1,42 @@
 import { NextResponse } from "next/server";
+import { exchangeAuthorizationCode } from "@/lib/auth/mercadolibre-oauth";
+import {
+  encryptSession,
+  mercadoLibreSessionCookie
+} from "@/lib/auth/meli-session";
 
 export const runtime = "nodejs";
 
-/**
- * Mercado Libre OAuth callback.
- *
- * This route exists from the first deployment so its HTTPS URL can be registered
- * in Mercado Libre Developers before client credentials are available.
- *
- * Token exchange/persistence is intentionally completed only after
- * MELI_CLIENT_ID / MELI_CLIENT_SECRET are configured securely in Vercel.
- */
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const returnedState = url.searchParams.get("state");
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
 
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const cookies = Object.fromEntries(
+    cookieHeader
+      .split(";")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const index = entry.indexOf("=");
+        return [
+          decodeURIComponent(entry.slice(0, index)),
+          decodeURIComponent(entry.slice(index + 1))
+        ];
+      })
+  );
+
   if (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error,
-        errorDescription:
-          errorDescription ?? "Mercado Libre rechazó o canceló la autorización."
-      },
-      { status: 400 }
+    return NextResponse.redirect(
+      new URL(
+        `/?meli=error&reason=${encodeURIComponent(
+          errorDescription ?? error
+        )}`,
+        request.url
+      )
     );
   }
 
@@ -34,14 +45,49 @@ export async function GET(request: Request) {
       ok: true,
       ready: true,
       message:
-        "Callback de Mercado Libre activo. Esta URL ya puede registrarse como Redirect URI."
+        "Callback de Mercado Libre activo. Esta URL puede registrarse como Redirect URI."
     });
   }
 
-  return NextResponse.json({
-    ok: true,
-    authorizationCodeReceived: true,
-    message:
-      "Código OAuth recibido. Falta configurar las credenciales y persistencia segura para intercambiarlo por tokens."
-  });
+  if (!returnedState || returnedState !== cookies.meli_oauth_state) {
+    return NextResponse.json(
+      { ok: false, error: "State OAuth inválido o vencido." },
+      { status: 400 }
+    );
+  }
+
+  const codeVerifier = cookies.meli_pkce_verifier;
+  if (!codeVerifier) {
+    return NextResponse.json(
+      { ok: false, error: "Falta el code_verifier de PKCE." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const session = await exchangeAuthorizationCode(code, codeVerifier);
+    const response = NextResponse.redirect(
+      new URL("/?meli=connected", request.url)
+    );
+
+    response.cookies.set(
+      mercadoLibreSessionCookie.name,
+      encryptSession(session),
+      mercadoLibreSessionCookie.options
+    );
+    response.cookies.delete("meli_oauth_state");
+    response.cookies.delete("meli_pkce_verifier");
+
+    return response;
+  } catch (caught) {
+    const message =
+      caught instanceof Error ? caught.message : "No se pudo completar OAuth.";
+
+    return NextResponse.redirect(
+      new URL(
+        `/?meli=error&reason=${encodeURIComponent(message.slice(0, 250))}`,
+        request.url
+      )
+    );
+  }
 }
