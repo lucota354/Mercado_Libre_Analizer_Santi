@@ -6,6 +6,11 @@ export type MarketplaceSearchItem = {
   permalink: string;
   price?: number;
   currencyId?: string;
+  condition?: string;
+  brand?: string;
+  description?: string;
+  oemCode?: string;
+  source?: "apify" | "meli_catalog" | "meli_web" | "web_index";
 };
 
 export type VehicleCatalogValue = {
