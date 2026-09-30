@@ -9,6 +9,7 @@ import { MercadoLibreClient } from "@/lib/marketplace/mercadolibre-client";
 import { createSearchPlan } from "@/lib/marketplace/search-plan";
 import { calculateCustomerQuote } from "@/lib/pricing/customer-quote";
 import { calculateRobustPrice } from "@/lib/pricing/robust-price";
+import { parseVehicleYear } from "@/lib/validation/vehicle-year";
 
 type RequestBody = {
   vehicle: VehicleInput;
@@ -21,12 +22,22 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as RequestBody;
 
-    if (!body.vehicle?.brand || !body.vehicle?.model || !body.vehicle?.year) {
+    if (!body.vehicle?.brand || !body.vehicle?.model || body.vehicle?.year == null) {
       return NextResponse.json(
         { error: "Faltan marca, modelo o año del vehículo." },
         { status: 400 }
       );
     }
+
+    const validYear = parseVehicleYear(body.vehicle.year);
+    if (validYear === null) {
+      return NextResponse.json(
+        { error: "El año del vehículo debe tener 4 dígitos y estar entre 1900 y 2100." },
+        { status: 400 }
+      );
+    }
+
+    body.vehicle.year = validYear;
 
     const damages = (body.damages ?? []).filter((damage) => damage.partName?.trim());
     if (!damages.length) {
