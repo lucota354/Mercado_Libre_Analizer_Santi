@@ -165,7 +165,7 @@ export default function HomePage() {
   return (
     <main className="shell">
       <section className="hero">
-        <span className="eyebrow">Cotizador · Mercado Libre Argentina</span>
+        <span className="eyebrow">Cotizador · Mercado Libre Argentina · v0.2</span>
         <h1>Mercado Libre Analyzer Santi</h1>
         <p>
           Cargá el vehículo y las piezas dañadas. El sistema busca publicaciones,
