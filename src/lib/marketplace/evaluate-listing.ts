@@ -46,8 +46,11 @@ export function evaluateListing(
   const requestedBrand = normalize(damage.requestedBrand || vehicle.brand);
   const listingBrand = normalize(listing.brand);
 
-  if (
-    listing.condition &&
+  if (!listing.condition) {
+    rejectionReasons.push(
+      "Condición nuevo/usado no confirmada. Requiere revisión manual."
+    );
+  } else if (
     normalize(listing.condition) !== "new" &&
     normalize(listing.condition) !== "nuevo"
   ) {
