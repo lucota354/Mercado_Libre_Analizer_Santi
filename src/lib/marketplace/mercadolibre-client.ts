@@ -41,6 +41,31 @@ type CompatibilitiesResponse = {
   [key: string]: unknown;
 };
 
+type CatalogProductSearchResult = {
+  id: string;
+  name?: string;
+  permalink?: string;
+  children_ids?: string[];
+};
+
+type CatalogProductItem = {
+  item_id: string;
+  price?: number;
+  currency_id?: string;
+  condition?: string;
+  permalink?: string;
+};
+
+type CatalogProductDetail = CatalogProductSearchResult & {
+  buy_box_winner?: {
+    item_id?: string;
+    price?: number;
+    currency_id?: string;
+    condition?: string;
+  } | null;
+  children_ids?: string[];
+};
+
 type AuthMode = "required" | "optional" | "none";
 
 const API = "https://api.mercadolibre.com";
@@ -136,43 +161,101 @@ export class MercadoLibreClient implements MercadoLibreGateway {
    * OAuth bearer token here: an app with restricted/minimal scopes can receive
    * 403 before Mercado Libre evaluates the otherwise-public query.
    */
+  /**
+   * Mercado Libre retired/blocked the old free-text marketplace search
+   * /sites/MLA/search?q=... for general discovery. Current V1 discovery uses
+   * the documented catalog flow:
+   *
+   *   /products/search?q=...
+   *      -> /products/{product_id}/items
+   *
+   * The second endpoint returns listings from all sellers competing on that
+   * product page, including item_id, price and condition.
+   */
   async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
-    const path = `/sites/MLA/search?q=${encodeURIComponent(query)}&limit=20`;
+    const search = await this.request<{
+      results?: CatalogProductSearchResult[];
+    }>(
+      `/products/search?status=active&site_id=MLA&q=${encodeURIComponent(
+        query
+      )}&limit=8`,
+      undefined,
+      "required"
+    );
 
-    let data: {
-      results?: Array<{
-        id: string;
-        title?: string;
-        permalink?: string;
-        price?: number;
-        currency_id?: string;
-      }>;
-    };
+    const products = (search.results ?? []).slice(0, 8);
+    const discovered = new Map<string, MarketplaceSearchItem>();
 
-    try {
-      data = await this.request(path, undefined, "none");
-    } catch (error) {
-      // Some Mercado Libre edge policies may require a token. Retry once with
-      // OAuth only when public access was explicitly rejected.
-      if (
-        error instanceof MercadoLibreApiError &&
-        (error.status === 401 || error.status === 403) &&
-        this.accessToken
-      ) {
-        data = await this.request(path, undefined, "optional");
-      } else {
-        throw error;
+    for (const product of products) {
+      if (discovered.size >= 20) break;
+
+      const productIds = [product.id];
+
+      // If the search returned a parent/umbrella product, its direct items may
+      // be empty. Product detail lets us inspect child product IDs as fallback.
+      let detail: CatalogProductDetail | null = null;
+
+      try {
+        detail = await this.request<CatalogProductDetail>(
+          `/products/${encodeURIComponent(product.id)}`,
+          undefined,
+          "required"
+        );
+      } catch {
+        detail = null;
+      }
+
+      if (detail?.children_ids?.length) {
+        productIds.push(...detail.children_ids.slice(0, 4));
+      }
+
+      for (const productId of productIds) {
+        if (discovered.size >= 20) break;
+
+        try {
+          const itemsResponse = await this.request<{
+            results?: CatalogProductItem[];
+          }>(
+            `/products/${encodeURIComponent(productId)}/items?limit=20`,
+            undefined,
+            "required"
+          );
+
+          for (const item of itemsResponse.results ?? []) {
+            if (!item.item_id || discovered.has(item.item_id)) continue;
+
+            discovered.set(item.item_id, {
+              id: item.item_id,
+              title: product.name ?? item.item_id,
+              permalink:
+                item.permalink ??
+                `https://articulo.mercadolibre.com.ar/${item.item_id}`,
+              price: item.price,
+              currencyId: item.currency_id
+            });
+
+            if (discovered.size >= 20) break;
+          }
+        } catch {
+          // Some product pages may not expose their competitors to this app.
+          // In that case keep the current buy-box winner as a usable candidate.
+          const winner =
+            productId === product.id ? detail?.buy_box_winner : undefined;
+
+          if (winner?.item_id && !discovered.has(winner.item_id)) {
+            discovered.set(winner.item_id, {
+              id: winner.item_id,
+              title: product.name ?? winner.item_id,
+              permalink: `https://articulo.mercadolibre.com.ar/${winner.item_id}`,
+              price: winner.price,
+              currencyId: winner.currency_id
+            });
+          }
+        }
       }
     }
 
-    return (data.results ?? []).map((item) => ({
-      id: item.id,
-      title: item.title ?? item.id,
-      permalink:
-        item.permalink ?? `https://articulo.mercadolibre.com.ar/${item.id}`,
-      price: item.price,
-      currencyId: item.currency_id
-    }));
+    return [...discovered.values()].slice(0, 20);
   }
 
   async getItems(ids: string[]): Promise<MeliItem[]> {
@@ -181,38 +264,37 @@ export class MercadoLibreClient implements MercadoLibreGateway {
 
     const bulkPath = `/items/bulk?ids=${encodeURIComponent(unique.join(","))}`;
 
-    try {
-      const data = await this.request<
-        Array<{ id?: string; status_code?: number; body?: MeliItem }>
-      >(bulkPath, undefined, "none");
+    for (const authMode of ["required", "none"] as const) {
+      try {
+        const data = await this.request<
+          Array<{ id?: string; status_code?: number; body?: MeliItem }>
+        >(bulkPath, undefined, authMode);
 
-      const items = data
-        .filter((entry) => entry.status_code === 200 && entry.body)
-        .map((entry) => entry.body as MeliItem);
+        const items = data
+          .filter((entry) => entry.status_code === 200 && entry.body)
+          .map((entry) => entry.body as MeliItem);
 
-      if (items.length > 0) return items;
-    } catch (error) {
-      if (
-        !(error instanceof MercadoLibreApiError) ||
-        (error.status !== 401 && error.status !== 403)
-      ) {
-        throw error;
+        if (items.length > 0) return items;
+      } catch {
+        // Continue to the next supported retrieval strategy.
       }
     }
 
-    // Defensive fallback: item detail is also a public resource. This keeps a
-    // temporary bulk-policy issue from taking the whole estimate down.
     const individual = await Promise.all(
       unique.map(async (id) => {
-        try {
-          return await this.request<MeliItem>(
-            `/items/${encodeURIComponent(id)}`,
-            undefined,
-            "none"
-          );
-        } catch {
-          return null;
+        for (const authMode of ["required", "none"] as const) {
+          try {
+            return await this.request<MeliItem>(
+              `/items/${encodeURIComponent(id)}`,
+              undefined,
+              authMode
+            );
+          } catch {
+            // Try the next mode.
+          }
         }
+
+        return null;
       })
     );
 
