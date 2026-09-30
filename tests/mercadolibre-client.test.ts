@@ -6,57 +6,61 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("MercadoLibreClient auth separation", () => {
-  it("does not send OAuth credentials to public marketplace search", async () => {
-    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      expect(headers.has("Authorization")).toBe(false);
-
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              id: "MLA1",
-              title: "Paragolpe Trasero Ford Focus",
-              permalink: "https://example.com/MLA1",
-              price: 400000,
-              currency_id: "ARS"
-            }
-          ]
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    });
-
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = new MercadoLibreClient("APP_USR-test-token");
-    const results = await client.searchArgentina("paragolpe ford focus 2013");
-
-    expect(results).toHaveLength(1);
-    expect(results[0].id).toBe("MLA1");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to public individual item detail if bulk is forbidden", async () => {
+describe("MercadoLibreClient current discovery flow", () => {
+  it("discovers marketplace listings through catalog product search", async () => {
     const fetchMock = vi.fn(async (urlInput: string | URL | Request, init?: RequestInit) => {
       const url = String(urlInput);
       const headers = new Headers(init?.headers);
-      expect(headers.has("Authorization")).toBe(false);
 
-      if (url.includes("/items/bulk")) {
+      if (url.includes("/products/search")) {
+        expect(headers.get("Authorization")).toBe("Bearer APP_USR-test-token");
         return new Response(
-          JSON.stringify({ message: "forbidden", error: "forbidden", status: 403 }),
-          { status: 403, headers: { "Content-Type": "application/json" } }
+          JSON.stringify({
+            results: [
+              {
+                id: "MLA-PROD-1",
+                name: "Paragolpe Trasero Nissan Sentra 2021"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
 
-      if (url.endsWith("/items/MLA1")) {
+      if (url.endsWith("/products/MLA-PROD-1")) {
         return new Response(
           JSON.stringify({
-            id: "MLA1",
-            title: "Paragolpe Trasero Ford Focus",
-            condition: "new"
+            id: "MLA-PROD-1",
+            name: "Paragolpe Trasero Nissan Sentra 2021",
+            children_ids: [],
+            buy_box_winner: {
+              item_id: "MLA100",
+              price: 600000,
+              currency_id: "ARS",
+              condition: "new"
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/products/MLA-PROD-1/items")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                item_id: "MLA100",
+                price: 600000,
+                currency_id: "ARS",
+                condition: "new"
+              },
+              {
+                item_id: "MLA101",
+                price: 640000,
+                currency_id: "ARS",
+                condition: "new"
+              }
+            ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -68,9 +72,103 @@ describe("MercadoLibreClient auth separation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new MercadoLibreClient("APP_USR-test-token");
-    const items = await client.getItems(["MLA1"]);
+    const results = await client.searchArgentina(
+      "paragolpe trasero nissan sentra 2021"
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results.map((result) => result.id)).toEqual(["MLA100", "MLA101"]);
+    expect(results[0].price).toBe(600000);
+  });
+
+  it("keeps the buy-box winner if product competitors are unavailable", async () => {
+    const fetchMock = vi.fn(async (urlInput: string | URL | Request) => {
+      const url = String(urlInput);
+
+      if (url.includes("/products/search")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "MLA-PROD-1",
+                name: "Paragolpe Trasero Nissan Sentra 2021"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.endsWith("/products/MLA-PROD-1")) {
+        return new Response(
+          JSON.stringify({
+            id: "MLA-PROD-1",
+            name: "Paragolpe Trasero Nissan Sentra 2021",
+            children_ids: [],
+            buy_box_winner: {
+              item_id: "MLA100",
+              price: 600000,
+              currency_id: "ARS"
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/products/MLA-PROD-1/items")) {
+        return new Response(
+          JSON.stringify({ message: "forbidden", status: 403 }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new MercadoLibreClient("APP_USR-test-token");
+    const results = await client.searchArgentina(
+      "paragolpe trasero nissan sentra 2021"
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe("MLA100");
+    expect(results[0].price).toBe(600000);
+  });
+
+  it("retrieves item details using authenticated bulk before fallbacks", async () => {
+    const fetchMock = vi.fn(async (urlInput: string | URL | Request, init?: RequestInit) => {
+      const url = String(urlInput);
+      const headers = new Headers(init?.headers);
+
+      if (url.includes("/items/bulk")) {
+        expect(headers.get("Authorization")).toBe("Bearer APP_USR-test-token");
+        return new Response(
+          JSON.stringify([
+            {
+              id: "MLA100",
+              status_code: 200,
+              body: {
+                id: "MLA100",
+                title: "Paragolpe Trasero Nissan Sentra Original",
+                condition: "new"
+              }
+            }
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new MercadoLibreClient("APP_USR-test-token");
+    const items = await client.getItems(["MLA100"]);
 
     expect(items).toHaveLength(1);
-    expect(items[0].id).toBe("MLA1");
+    expect(items[0].id).toBe("MLA100");
   });
 });
