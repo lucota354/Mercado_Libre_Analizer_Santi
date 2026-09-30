@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { DamageInput, VehicleInput } from "@/lib/domain/types";
+import type { DamageInput, PriceSummary, VehicleInput } from "@/lib/domain/types";
 import { evaluateListing } from "@/lib/marketplace/evaluate-listing";
 import { MercadoLibreClient } from "@/lib/marketplace/mercadolibre-client";
 import { createSearchPlan } from "@/lib/marketplace/search-plan";
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
         (candidate) => candidate.evaluation.valid && candidate.listing.price > 0
       );
 
-      let priceSummary = null;
+      let priceSummary: PriceSummary | null = null;
       let purchaseReference = null;
       let customerQuote = null;
 
