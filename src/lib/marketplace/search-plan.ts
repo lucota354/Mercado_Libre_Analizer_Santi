@@ -8,7 +8,10 @@ function unique(values: string[]) {
   return [...new Set(values.map(normalize).filter(Boolean))];
 }
 
-export function createSearchPlan(vehicle: VehicleInput, damage: DamageInput): SearchPlan {
+export function createSearchPlan(
+  vehicle: VehicleInput,
+  damage: DamageInput
+): SearchPlan {
   const brand = normalize(vehicle.brand);
   const model = normalize(vehicle.model);
   const year = vehicle.year ? String(vehicle.year) : "";
@@ -17,16 +20,27 @@ export function createSearchPlan(vehicle: VehicleInput, damage: DamageInput): Se
   const part = normalize(damage.partName);
   const position = normalize(damage.position);
 
-  const base = unique([part, position, brand, model, year, version]).join(" ");
-
+  /**
+   * Search broad -> specific.
+   *
+   * Mercado Libre titles for autoparts frequently omit trim/engine and may use
+   * year ranges (e.g. 2020-2024). Starting with the full trim + "original"
+   * can therefore hide perfectly relevant listings.
+   */
   const queries = unique([
-    `${base} original`,
-    `${base} genuino`,
-    `${part} ${position} ${brand} ${model} ${year} OEM`,
-    `${brand} ${model} ${year} ${part} ${position} original`,
-    version ? `${brand} ${model} ${version} ${year} ${part} ${position}` : "",
-    engine ? `${brand} ${model} ${year} ${engine} ${part} ${position} original` : ""
-  ]).slice(0, 6);
+    `${part} ${position} ${brand} ${model}`,
+    `${part} ${brand} ${model}`,
+    `${part} ${position} ${brand} ${model} ${year}`,
+    `${part} ${position} ${brand} ${model} original`,
+    `${part} ${position} ${brand} ${model} ${year} original`,
+    `${part} ${position} ${brand} ${model} OEM`,
+    version
+      ? `${part} ${position} ${brand} ${model} ${version}`
+      : "",
+    engine
+      ? `${part} ${position} ${brand} ${model} ${engine}`
+      : ""
+  ]).slice(0, 8);
 
   return {
     damageId: damage.id,
