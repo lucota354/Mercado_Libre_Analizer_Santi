@@ -41,6 +41,8 @@ type CompatibilitiesResponse = {
   [key: string]: unknown;
 };
 
+type AuthMode = "required" | "optional" | "none";
+
 const API = "https://api.mercadolibre.com";
 
 function normalize(value?: string | null) {
@@ -81,15 +83,34 @@ export function attributeValue(item: MeliItem, ids: string[]) {
   return attr?.value_name ?? attr?.values?.[0]?.name ?? undefined;
 }
 
+export class MercadoLibreApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly path: string,
+    public readonly responseBody: string
+  ) {
+    super(
+      `Mercado Libre API ${status} en ${path}: ${responseBody.slice(0, 300)}`
+    );
+    this.name = "MercadoLibreApiError";
+  }
+}
+
 export class MercadoLibreClient implements MercadoLibreGateway {
   constructor(private readonly accessToken = process.env.MELI_ACCESS_TOKEN) {}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: RequestInit,
+    authMode: AuthMode = "required"
+  ): Promise<T> {
     const headers = new Headers(init?.headers);
     headers.set("Accept", "application/json");
 
-    if (this.accessToken) {
+    if (authMode !== "none" && this.accessToken) {
       headers.set("Authorization", `Bearer ${this.accessToken}`);
+    } else if (authMode === "required" && !this.accessToken) {
+      throw new Error("Mercado Libre no está autenticado.");
     }
 
     if (init?.body) {
@@ -104,16 +125,21 @@ export class MercadoLibreClient implements MercadoLibreGateway {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(
-        `Mercado Libre API ${response.status}: ${body.slice(0, 400)}`
-      );
+      throw new MercadoLibreApiError(response.status, path, body);
     }
 
     return response.json() as Promise<T>;
   }
 
+  /**
+   * Marketplace search is a public Mercado Libre resource. Do not attach the
+   * OAuth bearer token here: an app with restricted/minimal scopes can receive
+   * 403 before Mercado Libre evaluates the otherwise-public query.
+   */
   async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
-    const data = await this.request<{
+    const path = `/sites/MLA/search?q=${encodeURIComponent(query)}&limit=20`;
+
+    let data: {
       results?: Array<{
         id: string;
         title?: string;
@@ -121,12 +147,29 @@ export class MercadoLibreClient implements MercadoLibreGateway {
         price?: number;
         currency_id?: string;
       }>;
-    }>(`/sites/MLA/search?q=${encodeURIComponent(query)}&limit=20`);
+    };
+
+    try {
+      data = await this.request(path, undefined, "none");
+    } catch (error) {
+      // Some Mercado Libre edge policies may require a token. Retry once with
+      // OAuth only when public access was explicitly rejected.
+      if (
+        error instanceof MercadoLibreApiError &&
+        (error.status === 401 || error.status === 403) &&
+        this.accessToken
+      ) {
+        data = await this.request(path, undefined, "optional");
+      } else {
+        throw error;
+      }
+    }
 
     return (data.results ?? []).map((item) => ({
       id: item.id,
       title: item.title ?? item.id,
-      permalink: item.permalink ?? `https://articulo.mercadolibre.com.ar/${item.id}`,
+      permalink:
+        item.permalink ?? `https://articulo.mercadolibre.com.ar/${item.id}`,
       price: item.price,
       currencyId: item.currency_id
     }));
@@ -136,13 +179,44 @@ export class MercadoLibreClient implements MercadoLibreGateway {
     const unique = [...new Set(ids)].slice(0, 20);
     if (!unique.length) return [];
 
-    const data = await this.request<
-      Array<{ id?: string; status_code?: number; body?: MeliItem }>
-    >(`/items/bulk?ids=${encodeURIComponent(unique.join(","))}`);
+    const bulkPath = `/items/bulk?ids=${encodeURIComponent(unique.join(","))}`;
 
-    return data
-      .filter((entry) => entry.status_code === 200 && entry.body)
-      .map((entry) => entry.body as MeliItem);
+    try {
+      const data = await this.request<
+        Array<{ id?: string; status_code?: number; body?: MeliItem }>
+      >(bulkPath, undefined, "none");
+
+      const items = data
+        .filter((entry) => entry.status_code === 200 && entry.body)
+        .map((entry) => entry.body as MeliItem);
+
+      if (items.length > 0) return items;
+    } catch (error) {
+      if (
+        !(error instanceof MercadoLibreApiError) ||
+        (error.status !== 401 && error.status !== 403)
+      ) {
+        throw error;
+      }
+    }
+
+    // Defensive fallback: item detail is also a public resource. This keeps a
+    // temporary bulk-policy issue from taking the whole estimate down.
+    const individual = await Promise.all(
+      unique.map(async (id) => {
+        try {
+          return await this.request<MeliItem>(
+            `/items/${encodeURIComponent(id)}`,
+            undefined,
+            "none"
+          );
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return individual.filter((item): item is MeliItem => Boolean(item));
   }
 
   async getSalePrice(itemId: string) {
@@ -150,7 +224,11 @@ export class MercadoLibreClient implements MercadoLibreGateway {
       amount: number;
       currency_id: string;
     }>(
-      `/items/${encodeURIComponent(itemId)}/sale_price?context=channel_marketplace`
+      `/items/${encodeURIComponent(
+        itemId
+      )}/sale_price?context=channel_marketplace`,
+      undefined,
+      "required"
     );
 
     return {
@@ -179,7 +257,8 @@ export class MercadoLibreClient implements MercadoLibreGateway {
       {
         method: "POST",
         body: JSON.stringify(body)
-      }
+      },
+      "required"
     );
   }
 
@@ -192,14 +271,21 @@ export class MercadoLibreClient implements MercadoLibreGateway {
     let data: CompatibilitiesResponse;
     try {
       data = await this.request<CompatibilitiesResponse>(
-        `/items/${encodeURIComponent(itemId)}/compatibilities?extended=true`
+        `/items/${encodeURIComponent(itemId)}/compatibilities?extended=true`,
+        undefined,
+        "required"
       );
-    } catch {
+    } catch (error) {
+      const detail =
+        error instanceof MercadoLibreApiError
+          ? `HTTP ${error.status} en compatibilidades.`
+          : "No se pudieron consultar compatibilidades.";
+
       return {
         status: "unknown",
         source: "meli_catalog",
         checkedAt,
-        note: "La API no permitió obtener compatibilidades detalladas para este ítem."
+        note: `${detail} La publicación queda para revisión manual y no entra al precio automático.`
       };
     }
 
@@ -232,7 +318,11 @@ export class MercadoLibreClient implements MercadoLibreGateway {
       data.catalog_compatibilities_count ??
       products
         .filter((product) => normalize(product.source) === "catalogo")
-        .reduce((sum, product) => sum + Number((product as { total?: number }).total ?? 0), 0);
+        .reduce(
+          (sum, product) =>
+            sum + Number((product as { total?: number }).total ?? 0),
+          0
+        );
 
     if (sellerProducts.length > 0 && !catalogCount) {
       return {
@@ -241,7 +331,8 @@ export class MercadoLibreClient implements MercadoLibreGateway {
         compatibleVehicleNames: sellerProducts
           .map((product) => product.catalog_product_name)
           .filter((name): name is string => Boolean(name)),
-        note: "Hay compatibilidades detalladas del vendedor, pero ninguna coincide con el vehículo.",
+        note:
+          "Hay compatibilidades detalladas del vendedor, pero ninguna coincide con el vehículo.",
         checkedAt
       };
     }
