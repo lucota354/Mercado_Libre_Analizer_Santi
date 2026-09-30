@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { searchMercadoLibreWithApify } from "./apify-mercadolibre";
 import type {
   CandidateListing,
   CompatibilityEvidence,
@@ -637,7 +638,8 @@ export class MercadoLibreClient implements MercadoLibreGateway {
    * /products/search can incorrectly return zero marketplace publications.
    */
   async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
-    const [webResult, catalogResult] = await Promise.allSettled([
+    const [apifyResult, webResult, catalogResult] = await Promise.allSettled([
+      searchMercadoLibreWithApify(query),
       this.searchMarketplaceWeb(query),
       this.searchCatalog(query)
     ]);
@@ -660,11 +662,17 @@ export class MercadoLibreClient implements MercadoLibreGateway {
               : item.title,
           permalink: existing.permalink || item.permalink,
           price: existing.price ?? item.price,
-          currencyId: existing.currencyId ?? item.currencyId
+          currencyId: existing.currencyId ?? item.currencyId,
+          condition: existing.condition ?? item.condition,
+          brand: existing.brand ?? item.brand,
+          description: existing.description ?? item.description,
+          oemCode: existing.oemCode ?? item.oemCode,
+          source: existing.source ?? item.source
         });
       }
     };
 
+    if (apifyResult.status === "fulfilled") add(apifyResult.value);
     if (webResult.status === "fulfilled") add(webResult.value);
     if (catalogResult.status === "fulfilled") add(catalogResult.value);
 
