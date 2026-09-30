@@ -24,6 +24,7 @@ export function GET(request: Request) {
 
   return NextResponse.json({
     connected: Boolean(session?.accessToken),
+    searchScraperConfigured: Boolean(process.env.APIFY_TOKEN),
     expiresAt: session?.expiresAt ?? null,
     userId: session?.userId ?? null
   });
