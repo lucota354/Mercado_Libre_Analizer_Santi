@@ -221,3 +221,43 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .sectionTitle { flex-direction: column; }
   .quoteNumbers { grid-template-columns: 1fr; gap: 2px; }
 }
+
+
+.connectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid #d0d5dd;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, .04);
+}
+
+.connectionBar > div {
+  display: grid;
+  gap: 3px;
+}
+
+.connectionBar strong {
+  color: #101828;
+}
+
+.connectionBar span:not(.status) {
+  color: #667085;
+  font-size: .84rem;
+}
+
+.connectButton {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 650px) {
+  .connectionBar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
