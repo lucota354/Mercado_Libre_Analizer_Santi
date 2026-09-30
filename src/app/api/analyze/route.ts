@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import type { DamageInput, PriceSummary, VehicleInput } from "@/lib/domain/types";
 import { evaluateListing } from "@/lib/marketplace/evaluate-listing";
+import {
+  attachMercadoLibreSessionCookie,
+  resolveMercadoLibreSession
+} from "@/lib/auth/resolve-meli-session";
 import { MercadoLibreClient } from "@/lib/marketplace/mercadolibre-client";
 import { createSearchPlan } from "@/lib/marketplace/search-plan";
 import { calculateCustomerQuote } from "@/lib/pricing/customer-quote";
@@ -32,7 +36,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const client = new MercadoLibreClient();
+    const resolvedSession = await resolveMercadoLibreSession(request);
+    if (!resolvedSession) {
+      return NextResponse.json(
+        {
+          error:
+            "Mercado Libre no está conectado. Usá el botón Conectar Mercado Libre."
+        },
+        { status: 401 }
+      );
+    }
+
+    const client = new MercadoLibreClient(resolvedSession.session.accessToken);
 
     const groups = [];
 
@@ -112,11 +127,17 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       vehicle: body.vehicle,
       groups,
       generatedAt: new Date().toISOString()
     });
+
+    if (resolvedSession.refreshed) {
+      attachMercadoLibreSessionCookie(response, resolvedSession.session);
+    }
+
+    return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error desconocido.";
     return NextResponse.json({ error: message }, { status: 500 });
