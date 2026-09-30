@@ -221,7 +221,7 @@ export class MercadoLibreClient implements MercadoLibreGateway {
         compatibleVehicleNames: sellerProducts
           .map((product) => product.catalog_product_name)
           .filter((name): name is string => Boolean(name)),
-        note: matching.note ?? restrictions || undefined,
+        note: matching.note ?? (restrictions || undefined),
         reputationLevel: matching.reputation?.level ?? undefined,
         catalogCompatibilityCount: data.catalog_compatibilities_count,
         checkedAt
