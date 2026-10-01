@@ -480,3 +480,206 @@ input[aria-invalid="true"] {
     flex-direction: column;
   }
 }
+
+
+.onboardingScreenshot {
+  display: block;
+  width: min(100%, 980px);
+  height: auto;
+  margin: 12px 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 12px;
+  background: #101214;
+  box-shadow: 0 8px 22px rgba(16, 24, 40, .08);
+}
+
+.onboardingScreenshotCompact {
+  width: min(100%, 360px);
+}
+
+@media (max-width: 650px) {
+  .onboardingScreenshot {
+    border-radius: 9px;
+  }
+}
+
+
+.oemSuggestion {
+  margin: 14px 18px 0;
+  padding: 13px 15px;
+  border: 1px solid #fedf89;
+  border-radius: 12px;
+  background: #fffaeb;
+  color: #7a2e0e;
+  display: grid;
+  gap: 3px;
+}
+
+.oemSuggestion span {
+  color: #93370d;
+  font-size: .82rem;
+}
+
+.oemResearch {
+  padding: 14px 18px 18px;
+  border-bottom: 1px solid #eaecf0;
+}
+
+.oemResearchActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.oemSelected {
+  color: #475467;
+  font-size: .82rem;
+}
+
+.oemResearchResult {
+  margin-top: 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.oemResearchHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #eaecf0;
+  background: white;
+}
+
+.oemResearchHeader p {
+  margin: 4px 0 0;
+  color: #667085;
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.oemCandidateList {
+  display: grid;
+}
+
+.oemCandidate {
+  padding: 16px;
+  border-bottom: 1px solid #eaecf0;
+  background: white;
+}
+
+.oemCandidate:last-child {
+  border-bottom: 0;
+}
+
+.oemCandidateTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.oemCandidateTop h4 {
+  margin: 4px 0 7px;
+  font-size: 1.15rem;
+  letter-spacing: .01em;
+}
+
+.oemRank {
+  color: #667085;
+  font-size: .72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.badge.amber {
+  background: #fff7e6;
+  color: #b54708;
+}
+
+.oemEvidence {
+  margin-top: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: #475467;
+  font-size: .78rem;
+}
+
+.oemSources {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.oemSources a {
+  color: #175cd3;
+  font-size: .78rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.oemSources a:hover {
+  text-decoration: underline;
+}
+
+.oemResearchFootnote {
+  padding: 11px 14px;
+  color: #667085;
+  font-size: .74rem;
+  line-height: 1.5;
+  background: #f8fafc;
+  border-top: 1px solid #eaecf0;
+}
+
+.manualReviewBox {
+  margin: 14px;
+  padding: 14px;
+  border: 1px solid #fedf89;
+  border-radius: 12px;
+  background: #fffaeb;
+  color: #7a2e0e;
+}
+
+.manualReviewBox p {
+  margin: 5px 0 0;
+  font-size: .8rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .oemCandidateTop,
+  .oemResearchHeader {
+    flex-direction: column;
+  }
+
+  .oemCandidateTop .primary {
+    width: 100%;
+  }
+
+  .oemSuggestion,
+  .oemResearch {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+
+.oemLowConfidence {
+  display: inline-flex;
+  align-items: center;
+  max-width: 230px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: #fffaeb;
+  color: #b54708;
+  font-size: .76rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
