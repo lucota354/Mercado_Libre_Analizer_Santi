@@ -48,18 +48,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const resolvedSession = await resolveMercadoLibreSession(request);
-    if (!resolvedSession) {
+    if (!process.env.APIFY_TOKEN) {
       return NextResponse.json(
         {
           error:
-            "Mercado Libre no está conectado. Usá el botón Conectar Mercado Libre."
+            "La búsqueda robusta no está configurada. Falta APIFY_TOKEN en Vercel Production."
         },
-        { status: 401 }
+        { status: 503 }
       );
     }
 
-    const client = new MercadoLibreClient(resolvedSession.session.accessToken);
+    const resolvedSession = await resolveMercadoLibreSession(request);
+    const client = new MercadoLibreClient(resolvedSession?.session.accessToken);
 
     const groups = [];
 
@@ -81,13 +81,17 @@ export async function POST(request: Request) {
         }
       >();
 
-      for (const query of plan.queries.slice(0, 4)) {
-        const results = await client.searchArgentina(query);
+      for (const [queryIndex, query] of plan.queries.slice(0, 4).entries()) {
+        const results = await client.searchArgentina(query, {
+          useApify: queryIndex === 0
+        });
+
         for (const result of results) {
           if (!searchMaps.has(result.id)) searchMaps.set(result.id, result);
-          if (searchMaps.size >= 16) break;
+          if (searchMaps.size >= 8) break;
         }
-        if (searchMaps.size >= 16) break;
+
+        if (searchMaps.size >= 8) break;
       }
 
       const searchResults = [...searchMaps.values()];
@@ -195,7 +199,7 @@ export async function POST(request: Request) {
       generatedAt: new Date().toISOString()
     });
 
-    if (resolvedSession.refreshed) {
+    if (resolvedSession?.refreshed) {
       attachMercadoLibreSessionCookie(response, resolvedSession.session);
     }
 
