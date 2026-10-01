@@ -34,7 +34,7 @@ function levenshtein(a: string, b: string) {
   return matrix[a.length][b.length];
 }
 
-const KNOWN_VEHICLE_BRANDS = [
+export const KNOWN_VEHICLE_BRANDS = [
   "Audi",
   "BMW",
   "Chery",
@@ -60,6 +60,13 @@ const KNOWN_VEHICLE_BRANDS = [
   "Volkswagen",
   "Volvo"
 ];
+
+export function isKnownVehicleBrand(value?: string) {
+  const token = canonicalToken(value);
+  return KNOWN_VEHICLE_BRANDS.some(
+    (brand) => canonicalToken(brand) === token
+  );
+}
 
 export function canonicalizeVehicleBrand(value?: string) {
   const raw = normalize(value);
