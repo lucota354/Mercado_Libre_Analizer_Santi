@@ -114,7 +114,7 @@ describe("search availability", () => {
 
     expect(await screen.findByText("Configuración de Apify")).toBeTruthy();
     expect(screen.getByText("Creá una cuenta gratis en Apify")).toBeTruthy();
-    expect(screen.getByText("Copiá tu API token")).toBeTruthy();
+    expect(screen.getByText("Copiá tu Personal API token")).toBeTruthy();
     expect(screen.getByText("Pegalo acá y verificá la conexión")).toBeTruthy();
 
     const button = screen.getByRole("button", {
