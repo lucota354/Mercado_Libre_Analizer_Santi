@@ -4,6 +4,10 @@ import type {
   EvaluationResult,
   VehicleInput
 } from "@/lib/domain/types";
+import {
+  canonicalizeVehicleBrand,
+  isKnownVehicleBrand
+} from "@/lib/marketplace/search-plan";
 
 const alternativeTerms = [
   "generico",
@@ -43,8 +47,14 @@ export function evaluateListing(
   const text = textOf(listing);
   let score = 0;
 
-  const requestedBrand = normalize(damage.requestedBrand || vehicle.brand);
-  const listingBrand = normalize(listing.brand);
+  const requestedBrandRaw = damage.requestedBrand || vehicle.brand;
+  const requestedBrand = normalize(canonicalizeVehicleBrand(requestedBrandRaw));
+  const requestedBrandIsKnown = isKnownVehicleBrand(
+    canonicalizeVehicleBrand(requestedBrandRaw)
+  );
+  const listingBrand = normalize(
+    listing.brand ? canonicalizeVehicleBrand(listing.brand) : undefined
+  );
 
   if (!listing.condition) {
     rejectionReasons.push(
@@ -61,14 +71,66 @@ export function evaluateListing(
   }
 
   if (listingBrand) {
-    if (listingBrand === requestedBrand) {
+    if (requestedBrandIsKnown && listingBrand === requestedBrand) {
       score += 35;
       reasons.push("La marca del repuesto coincide con la requerida.");
-    } else {
+    } else if (requestedBrandIsKnown && listingBrand !== requestedBrand) {
       rejectionReasons.push(
         `Marca del repuesto incompatible: ${listing.brand} en lugar de ${damage.requestedBrand || vehicle.brand}.`
       );
+    } else {
+      score += 10;
+      reasons.push(
+        "La marca ingresada del vehículo no es una marca reconocida; no se usa para descartar automáticamente."
+      );
     }
+  }
+
+  const expectedPosition = normalize(damage.position);
+  const titleText = normalize(listing.title);
+
+  const oppositePositionTerms: Array<[string, string[]]> = [
+    ["trasero", ["delantero", "frontal", "frente"]],
+    ["delantero", ["trasero"]],
+    ["derecho", ["izquierdo"]],
+    ["izquierdo", ["derecho"]]
+  ];
+
+  for (const [expected, opposites] of oppositePositionTerms) {
+    if (
+      expectedPosition.includes(expected) &&
+      opposites.some((term) => titleText.includes(term))
+    ) {
+      rejectionReasons.push(
+        `La posición publicada no coincide: se pidió ${damage.position}.`
+      );
+      break;
+    }
+  }
+
+  const componentTerms = [
+    "spoiler",
+    "moldura",
+    "soporte",
+    "alma",
+    "refuerzo",
+    "rejilla",
+    "puntera",
+    "absorbedor",
+    "absorvedor"
+  ];
+
+  const requestedPart = normalize(damage.partName);
+  const componentHit = componentTerms.find(
+    (term) =>
+      titleText.includes(term) &&
+      !requestedPart.includes(term)
+  );
+
+  if (componentHit && requestedPart.includes("paragolpe")) {
+    rejectionReasons.push(
+      `La publicación parece ser un componente del paragolpe (${componentHit}), no el paragolpe completo.`
+    );
   }
 
   if (/\boriginal\b|\bgenuin[oa]\b/i.test(text)) {
