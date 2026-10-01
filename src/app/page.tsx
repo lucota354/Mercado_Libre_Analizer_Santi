@@ -11,6 +11,7 @@ import type {
 import { getLaborRatesForVehicleYear } from "@/lib/pricing/labor-rates";
 import { calculateWorkshopEstimate } from "@/lib/pricing/workshop-estimate";
 import { parseVehicleYear } from "@/lib/validation/vehicle-year";
+import ApifyOnboarding from "@/components/ApifyOnboarding";
 
 type CandidateResult = {
   listing: CandidateListing;
@@ -108,43 +109,61 @@ export default function HomePage() {
   const [mechanicHours, setMechanicHours] = useState(0);
   const [other, setOther] = useState(0);
   const [meliConnected, setMeliConnected] = useState<boolean | null>(null);
-  const [searchScraperConfigured, setSearchScraperConfigured] = useState<boolean | null>(null);
-  const [meliConnectionState, setMeliConnectionState] = useState<"connected" | "invalid_session" | "no_session" | null>(null);
+  const [apifyConnected, setApifyConnected] = useState<boolean | null>(null);
+  const [apifyUsername, setApifyUsername] = useState<string | null>(null);
+  const [apifySource, setApifySource] = useState<"browser" | "environment" | "none">("none");
+  const [meliConnectionState, setMeliConnectionState] = useState<
+    "connected" | "invalid_session" | "no_session" | null
+  >(null);
+  const [apifySetupOpen, setApifySetupOpen] = useState(false);
   const [yearInput, setYearInput] = useState(String(emptyVehicle.year));
 
-  useEffect(() => {
-    let cancelled = false;
+  async function refreshConnectionStatus() {
+    const [meliResult, apifyResult] = await Promise.allSettled([
+      fetch("/api/auth/mercadolibre/status", { cache: "no-store" }),
+      fetch("/api/auth/apify/status", { cache: "no-store" })
+    ]);
 
-    async function loadStatus() {
-      try {
-        const response = await fetch("/api/auth/mercadolibre/status", {
-          cache: "no-store"
-        });
-        const data = (await response.json()) as {
-          connected?: boolean;
-          searchScraperConfigured?: boolean;
-          connectionState?: "connected" | "invalid_session" | "no_session";
-        };
-        if (!cancelled) {
-          setMeliConnected(Boolean(data.connected));
-          setSearchScraperConfigured(Boolean(data.searchScraperConfigured));
-          setMeliConnectionState(data.connectionState ?? null);
-        }
-      } catch {
-        if (!cancelled) setMeliConnected(false);
-      }
+    if (meliResult.status === "fulfilled" && meliResult.value.ok) {
+      const data = (await meliResult.value.json()) as {
+        connected?: boolean;
+        connectionState?: "connected" | "invalid_session" | "no_session";
+      };
+      setMeliConnected(Boolean(data.connected));
+      setMeliConnectionState(data.connectionState ?? null);
+    } else {
+      setMeliConnected(false);
     }
 
-    loadStatus();
+    if (apifyResult.status === "fulfilled" && apifyResult.value.ok) {
+      const data = (await apifyResult.value.json()) as {
+        connected?: boolean;
+        source?: "browser" | "environment" | "none";
+        username?: string | null;
+      };
+
+      setApifyConnected(Boolean(data.connected));
+      setApifySource(data.source ?? "none");
+      setApifyUsername(data.username ?? null);
+
+      if (!data.connected || data.source === "environment") {
+        setApifySetupOpen(true);
+      }
+    } else {
+      setApifyConnected(false);
+      setApifySource("none");
+      setApifySetupOpen(true);
+    }
+  }
+
+  useEffect(() => {
+    refreshConnectionStatus();
 
     const params = new URLSearchParams(window.location.search);
     if (params.has("meli")) {
       window.history.replaceState({}, "", window.location.pathname);
+      refreshConnectionStatus();
     }
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const validVehicleYear = useMemo(
@@ -313,25 +332,31 @@ export default function HomePage() {
 
       <section className="connectionBar">
         <div>
-          <strong>Mercado Libre</strong>
+          <strong>Conexiones</strong>
           <span>
-            {meliConnected === null || searchScraperConfigured === null
+            {meliConnected === null || apifyConnected === null
               ? "Verificando conexiones…"
-              : searchScraperConfigured && meliConnected
-                ? "Búsqueda robusta activa y Mercado Libre conectado."
-                : searchScraperConfigured
+              : apifyConnected && meliConnected
+                ? "Todo listo para buscar repuestos y validar publicaciones."
+                : apifyConnected
                   ? meliConnectionState === "invalid_session"
-                    ? "Búsqueda robusta activa. La sesión de Mercado Libre quedó inválida; podés reconectarla sin bloquear la búsqueda."
-                    : "Búsqueda robusta activa. Mercado Libre está desconectado; las compatibilidades quedarán para revisión manual."
-                  : meliConnected
-                    ? "Mercado Libre conectado. Falta configurar APIFY_TOKEN para la búsqueda robusta."
-                    : "Falta configurar la búsqueda robusta. Podés conectar Mercado Libre para compatibilidades."}
+                    ? "Apify está listo. Reconectá Mercado Libre para sumar la validación adicional."
+                    : "Apify está listo. Mercado Libre puede conectarse para sumar validaciones."
+                  : "Falta conectar Apify para habilitar la búsqueda de repuestos."}
           </span>
         </div>
         <div className="connectionActions">
-          <span className={searchScraperConfigured ? "status valid" : "status pending"}>
-            {searchScraperConfigured ? "SCRAPER ACTIVO" : "FALTA SCRAPER"}
-          </span>
+          <button
+            className={apifyConnected ? "status valid statusButton" : "status pending statusButton"}
+            type="button"
+            onClick={() => setApifySetupOpen((current) => !current)}
+          >
+            {apifyConnected
+              ? apifySource === "environment"
+                ? "CONFIGURAR TU APIFY"
+                : "APIFY CONECTADO"
+              : "CONFIGURAR APIFY"}
+          </button>
           {meliConnected ? (
             <span className="status valid">ML CONECTADO</span>
           ) : (
@@ -341,6 +366,17 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      {apifyConnected !== null && (
+        <ApifyOnboarding
+          connected={Boolean(apifyConnected)}
+          username={apifyUsername}
+          source={apifySource}
+          open={apifySetupOpen || apifyConnected === false}
+          onClose={() => setApifySetupOpen(false)}
+          onConnected={refreshConnectionStatus}
+        />
+      )}
 
       <section className="card">
         <div className="sectionTitle">
@@ -512,7 +548,7 @@ export default function HomePage() {
           type="button"
           disabled={
             loading ||
-            searchScraperConfigured !== true ||
+            apifyConnected !== true ||
             validVehicleYear === null ||
             !vehicle.brand ||
             !vehicle.model ||
