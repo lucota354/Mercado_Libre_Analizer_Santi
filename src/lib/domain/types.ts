@@ -41,6 +41,7 @@ export type CompatibilitySource =
   | "meli_seller"
   | "meli_catalog"
   | "meli_page_selector"
+  | "listing_text"
   | "manual";
 
 export type CompatibilityEvidence = {
@@ -52,6 +53,8 @@ export type CompatibilityEvidence = {
   positionCompatible?: boolean;
   reputationLevel?: "GREEN" | "YELLOW" | "RED" | string;
   catalogCompatibilityCount?: number;
+  confidence?: "high" | "medium" | "low";
+  evidence?: string[];
   checkedAt?: string;
 };
 
