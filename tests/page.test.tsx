@@ -50,3 +50,35 @@ describe("vehicle year field", () => {
     expect(screen.getByText("Tarifa automática para 2013")).toBeTruthy();
   });
 });
+
+
+describe("search availability", () => {
+  it("allows robust search when Apify is configured even if Mercado Libre OAuth is disconnected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          connected: false,
+          searchScraperConfigured: true,
+          connectionState: "no_session"
+        })
+      }))
+    );
+
+    const user = userEvent.setup();
+    render(<HomePage />);
+
+    await user.type(screen.getByLabelText("Marca"), "Nissan");
+    await user.type(screen.getByLabelText("Modelo"), "Sentra");
+    await user.type(screen.getByLabelText("Repuesto"), "Paragolpe");
+
+    const button = await screen.findByRole("button", {
+      name: "Buscar, validar y cotizar"
+    });
+
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("SCRAPER ACTIVO")).toBeTruthy();
+    expect(screen.getByText("Conectar Mercado Libre")).toBeTruthy();
+  });
+});
