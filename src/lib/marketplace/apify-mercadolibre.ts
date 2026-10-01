@@ -20,7 +20,7 @@ type ApifyMercadoLibreRow = {
 };
 
 const ACTOR_ENDPOINT =
-  "https://api.apify.com/v2/acts/karamelo~mercadolibre-scraper-espanol-castellano/run-sync-get-dataset-items?format=json&clean=true";
+  "https://api.apify.com/v2/acts/karamelo~mercadolibre-scraper-espanol-castellano/run-sync-get-dataset-items?format=json&clean=true&timeout=30&maxItems=60";
 
 function normalizeItemId(value?: string | null) {
   if (!value) return null;
@@ -243,7 +243,7 @@ export async function searchMercadoLibreWithApify(
   if (!token) return [];
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55_000);
+  const timeout = setTimeout(() => controller.abort(), 35_000);
 
   try {
     const response = await fetch(ACTOR_ENDPOINT, {
@@ -259,9 +259,10 @@ export async function searchMercadoLibreWithApify(
         sort: "relevance",
         maxPages: 1,
         promoted: false,
-        extractProductDetails: true,
-        maxProductDetails: 12,
-        includeReviews: false
+        // Keep discovery fast. Product-page enrichment is done after we know
+        // which listings are relevant; opening many product pages here can
+        // exceed Vercel's request window.
+        extractProductDetails: false
       }),
       cache: "no-store",
       signal: controller.signal
@@ -274,7 +275,17 @@ export async function searchMercadoLibreWithApify(
       );
     }
 
-    const rows = (await response.json()) as ApifyMercadoLibreRow[];
+    const raw = await response.text();
+    let rows: ApifyMercadoLibreRow[];
+
+    try {
+      rows = JSON.parse(raw) as ApifyMercadoLibreRow[];
+    } catch {
+      throw new Error(
+        `Apify devolvió una respuesta no JSON: ${raw.slice(0, 250)}`
+      );
+    }
+
     return mapApifyRowsToMarketplaceItems(rows).slice(0, 30);
   } finally {
     clearTimeout(timeout);
