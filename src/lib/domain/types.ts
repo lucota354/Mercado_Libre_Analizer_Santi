@@ -6,6 +6,8 @@ export type VehicleInput = {
   engine?: string;
   bodyType?: string;
   transmission?: string;
+  /** Argentina UI: "N.º de chasis". Kept separate from VIN terminology. */
+  chassisNumber?: string;
   vin?: string;
   plate?: string;
   catalogProductId?: string;
@@ -18,6 +20,8 @@ export type DamageInput = {
   notes?: string;
   requestedBrand?: string;
   requestedCondition?: "new";
+  /** OEM selected manually or by the OEM research module. */
+  oemCode?: string;
   packageType?: "single" | "pair" | "kit";
 };
 
