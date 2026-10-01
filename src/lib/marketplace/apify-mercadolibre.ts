@@ -178,6 +178,39 @@ function extractOemFromFeatures(features: unknown) {
   return undefined;
 }
 
+function featuresText(features: unknown) {
+  if (!features) return undefined;
+
+  const parts: string[] = [];
+  const walk = (node: unknown, key = "") => {
+    if (node == null) return;
+
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, key);
+      return;
+    }
+
+    if (typeof node === "object") {
+      for (const [childKey, value] of Object.entries(
+        node as Record<string, unknown>
+      )) {
+        walk(value, childKey);
+      }
+      return;
+    }
+
+    if (typeof node === "string" || typeof node === "number") {
+      const value = String(node).trim();
+      if (!value) return;
+      parts.push(key ? `${key}: ${value}` : value);
+    }
+  };
+
+  walk(features);
+
+  return parts.slice(0, 80).join(" · ") || undefined;
+}
+
 function rowId(row: ApifyMercadoLibreRow) {
   return (
     normalizeItemId(row.idPublicacion) ||
@@ -208,7 +241,9 @@ export function mapApifyRowsToMarketplaceItems(
       currencyId: row.Moneda?.trim() || "ARS",
       condition: normalizeCondition(row.condicion),
       brand: row.productoMarca?.trim() || undefined,
-      description: row.descripcion?.trim() || undefined,
+      description: [row.descripcion?.trim(), featuresText(row.caracteristicas)]
+        .filter(Boolean)
+        .join(" · ") || undefined,
       oemCode: extractOemFromFeatures(row.caracteristicas),
       source: "apify"
     };
@@ -255,7 +290,9 @@ export async function startMercadoLibreApifySearch(
         sort: "relevance",
         maxPages: 1,
         promoted: false,
-        extractProductDetails: false
+        extractProductDetails: true,
+        maxProductDetails: 20,
+        includeReviews: false
       }),
       cache: "no-store"
     }
