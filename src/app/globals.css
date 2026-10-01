@@ -308,3 +308,19 @@ input[aria-invalid="true"] {
   line-height: 1.55;
   margin-bottom: 20px;
 }
+
+
+.connectionActions {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px !important;
+}
+
+@media (max-width: 650px) {
+  .connectionActions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
