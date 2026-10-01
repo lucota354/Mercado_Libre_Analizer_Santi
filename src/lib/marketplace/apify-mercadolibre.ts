@@ -19,8 +19,63 @@ type ApifyMercadoLibreRow = {
   [key: string]: unknown;
 };
 
-const ACTOR_ENDPOINT =
-  "https://api.apify.com/v2/acts/karamelo~mercadolibre-scraper-espanol-castellano/run-sync-get-dataset-items?format=json&clean=true&timeout=30&maxItems=60";
+export type ApifySearchJob = {
+  damageId: string;
+  runId: string;
+  query: string;
+  queryIndex: number;
+};
+
+export type ApifyRunSnapshot = {
+  id: string;
+  status:
+    | "READY"
+    | "RUNNING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "TIMING-OUT"
+    | "TIMED-OUT"
+    | "ABORTING"
+    | "ABORTED"
+    | string;
+  defaultDatasetId?: string;
+  statusMessage?: string | null;
+};
+
+const ACTOR_ID = "karamelo~mercadolibre-scraper-espanol-castellano";
+const APIFY_API = "https://api.apify.com/v2";
+
+function token() {
+  const value = process.env.APIFY_TOKEN;
+  if (!value) {
+    throw new Error("APIFY_TOKEN no está configurado.");
+  }
+  return value;
+}
+
+function authHeaders(extra?: HeadersInit) {
+  const headers = new Headers(extra);
+  headers.set("Authorization", `Bearer ${token()}`);
+  return headers;
+}
+
+async function parseJsonResponse<T>(response: Response, label: string): Promise<T> {
+  const raw = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `${label} ${response.status}: ${raw.slice(0, 400) || response.statusText}`
+    );
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(
+      `${label} devolvió una respuesta no JSON: ${raw.slice(0, 300)}`
+    );
+  }
+}
 
 function normalizeItemId(value?: string | null) {
   if (!value) return null;
@@ -60,7 +115,6 @@ function parsePrice(value: unknown) {
   const raw = value.trim();
   if (!raw) return undefined;
 
-  // Mercado Libre ARS is normally rendered without meaningful decimals.
   const digits = raw.replace(/[^0-9]/g, "");
   if (!digits) return undefined;
 
@@ -98,80 +152,26 @@ function extractOemFromFeatures(features: unknown) {
     return match?.[0]?.toUpperCase();
   };
 
-  const inspectObject = (node: unknown): string | undefined => {
-    if (!node || typeof node !== "object" || Array.isArray(node)) return undefined;
-    const record = node as Record<string, unknown>;
+  if (Array.isArray(features)) {
+    for (const feature of features) {
+      if (!feature || typeof feature !== "object") continue;
+      const record = feature as Record<string, unknown>;
+      const label = [
+        record.nombre,
+        record.name,
+        record.label,
+        record.id,
+        record.key
+      ].find(
+        (value) => typeof value === "string" && isOemLabel(String(value))
+      );
 
-    const labelCandidate = [
-      record.nombre,
-      record.name,
-      record.label,
-      record.id,
-      record.key
-    ].find((value) => typeof value === "string" && isOemLabel(value));
+      if (!label) continue;
 
-    if (typeof labelCandidate === "string") {
       for (const key of ["valor", "value", "value_name", "contenido", "text"]) {
         const code = codeFrom(record[key]);
         if (code) return code;
       }
-    }
-
-    return undefined;
-  };
-
-  if (Array.isArray(features)) {
-    for (const feature of features) {
-      const direct = inspectObject(feature);
-      if (direct) return direct;
-    }
-  } else {
-    const direct = inspectObject(features);
-    if (direct) return direct;
-  }
-
-  const values: Array<{ key: string; value: string }> = [];
-
-  const walk = (node: unknown, parentKey = "") => {
-    if (node == null) return;
-
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item, parentKey);
-      return;
-    }
-
-    if (typeof node === "object") {
-      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-        if (typeof value === "string" || typeof value === "number") {
-          values.push({ key: `${parentKey} ${key}`.trim(), value: String(value) });
-        } else {
-          walk(value, `${parentKey} ${key}`.trim());
-        }
-      }
-      return;
-    }
-
-    if (typeof node === "string" || typeof node === "number") {
-      values.push({ key: parentKey, value: String(node) });
-    }
-  };
-
-  walk(features);
-
-  for (let index = 0; index < values.length; index += 1) {
-    const current = values[index];
-    if (!isOemLabel(`${current.key} ${current.value}`)) continue;
-
-    const directValueCode = codeFrom(current.value);
-    if (directValueCode && !["NOMBRE", "VALUE", "VALOR"].includes(directValueCode)) {
-      return directValueCode;
-    }
-
-    for (let offset = 1; offset <= 3; offset += 1) {
-      const neighbor = values[index + offset];
-      if (!neighbor) break;
-      const code = codeFrom(neighbor.value);
-      if (code) return code;
     }
   }
 
@@ -236,58 +236,77 @@ export function mapApifyRowsToMarketplaceItems(
   return [...items.values()];
 }
 
-export async function searchMercadoLibreWithApify(
-  query: string
-): Promise<MarketplaceSearchItem[]> {
-  const token = process.env.APIFY_TOKEN;
-  if (!token) return [];
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 35_000);
-
-  try {
-    const response = await fetch(ACTOR_ENDPOINT, {
+export async function startMercadoLibreApifySearch(
+  damageId: string,
+  query: string,
+  queryIndex = 0
+): Promise<ApifySearchJob> {
+  const response = await fetch(
+    `${APIFY_API}/actors/${ACTOR_ID}/runs?maxItems=80&timeout=180`,
+    {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
+      headers: authHeaders({
         "Content-Type": "application/json",
         Accept: "application/json"
-      },
+      }),
       body: JSON.stringify({
         keyword: query,
         country: "https://listado.mercadolibre.com.ar/",
         sort: "relevance",
         maxPages: 1,
         promoted: false,
-        // Keep discovery fast. Product-page enrichment is done after we know
-        // which listings are relevant; opening many product pages here can
-        // exceed Vercel's request window.
         extractProductDetails: false
       }),
-      cache: "no-store",
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Apify Mercado Libre scraper ${response.status}: ${body.slice(0, 400)}`
-      );
+      cache: "no-store"
     }
+  );
 
-    const raw = await response.text();
-    let rows: ApifyMercadoLibreRow[];
+  const payload = await parseJsonResponse<{
+    data?: { id?: string };
+  }>(response, "Apify start");
 
-    try {
-      rows = JSON.parse(raw) as ApifyMercadoLibreRow[];
-    } catch {
-      throw new Error(
-        `Apify devolvió una respuesta no JSON: ${raw.slice(0, 250)}`
-      );
-    }
-
-    return mapApifyRowsToMarketplaceItems(rows).slice(0, 30);
-  } finally {
-    clearTimeout(timeout);
+  const runId = payload.data?.id;
+  if (!runId) {
+    throw new Error("Apify inició la búsqueda pero no devolvió un runId.");
   }
+
+  return { damageId, runId, query, queryIndex };
+}
+
+export async function getApifyRunSnapshot(
+  runId: string
+): Promise<ApifyRunSnapshot> {
+  const response = await fetch(`${APIFY_API}/actor-runs/${encodeURIComponent(runId)}`, {
+    headers: authHeaders({ Accept: "application/json" }),
+    cache: "no-store"
+  });
+
+  const payload = await parseJsonResponse<{
+    data?: ApifyRunSnapshot;
+  }>(response, "Apify run status");
+
+  if (!payload.data?.id) {
+    throw new Error("Apify no devolvió el estado del run.");
+  }
+
+  return payload.data;
+}
+
+export async function getApifyDatasetRows(
+  datasetId: string
+): Promise<ApifyMercadoLibreRow[]> {
+  const response = await fetch(
+    `${APIFY_API}/datasets/${encodeURIComponent(
+      datasetId
+    )}/items?format=json&clean=true&limit=80`,
+    {
+      headers: authHeaders({ Accept: "application/json" }),
+      cache: "no-store"
+    }
+  );
+
+  return parseJsonResponse<ApifyMercadoLibreRow[]>(
+    response,
+    "Apify dataset"
+  );
 }
