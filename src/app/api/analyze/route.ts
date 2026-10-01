@@ -3,6 +3,7 @@ import type { DamageInput, VehicleInput } from "@/lib/domain/types";
 import { createSearchPlan } from "@/lib/marketplace/search-plan";
 import { startMercadoLibreApifySearch } from "@/lib/marketplace/apify-mercadolibre";
 import { parseVehicleYear } from "@/lib/validation/vehicle-year";
+import { resolveApifyAuth } from "@/lib/auth/apify-session";
 
 type RequestBody = {
   vehicle: VehicleInput;
@@ -31,10 +32,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!process.env.APIFY_TOKEN) {
+    const apifyAuth = resolveApifyAuth(request);
+    if (!apifyAuth) {
       return NextResponse.json(
-        { error: "Falta APIFY_TOKEN en Vercel Production." },
-        { status: 503 }
+        {
+          error:
+            "Apify no está conectado. Completá la configuración inicial y pegá tu API token."
+        },
+        { status: 401 }
       );
     }
 
@@ -60,7 +65,12 @@ export async function POST(request: Request) {
           throw new Error(`No se pudo construir la búsqueda para ${damage.partName}.`);
         }
 
-        return startMercadoLibreApifySearch(damage.id, primaryQuery, 0);
+        return startMercadoLibreApifySearch(
+          apifyAuth.apiToken,
+          damage.id,
+          primaryQuery,
+          0
+        );
       })
     );
 
