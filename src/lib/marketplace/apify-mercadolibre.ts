@@ -45,17 +45,9 @@ export type ApifyRunSnapshot = {
 const ACTOR_ID = "karamelo~mercadolibre-scraper-espanol-castellano";
 const APIFY_API = "https://api.apify.com/v2";
 
-function token() {
-  const value = process.env.APIFY_TOKEN;
-  if (!value) {
-    throw new Error("APIFY_TOKEN no está configurado.");
-  }
-  return value;
-}
-
-function authHeaders(extra?: HeadersInit) {
+function authHeaders(apiToken: string, extra?: HeadersInit) {
   const headers = new Headers(extra);
-  headers.set("Authorization", `Bearer ${token()}`);
+  headers.set("Authorization", `Bearer ${apiToken}`);
   return headers;
 }
 
@@ -272,6 +264,7 @@ export function mapApifyRowsToMarketplaceItems(
 }
 
 export async function startMercadoLibreApifySearch(
+  apiToken: string,
   damageId: string,
   query: string,
   queryIndex = 0
@@ -280,7 +273,7 @@ export async function startMercadoLibreApifySearch(
     `${APIFY_API}/actors/${ACTOR_ID}/runs?maxItems=80&timeout=180`,
     {
       method: "POST",
-      headers: authHeaders({
+      headers: authHeaders(apiToken, {
         "Content-Type": "application/json",
         Accept: "application/json"
       }),
@@ -311,10 +304,11 @@ export async function startMercadoLibreApifySearch(
 }
 
 export async function getApifyRunSnapshot(
+  apiToken: string,
   runId: string
 ): Promise<ApifyRunSnapshot> {
   const response = await fetch(`${APIFY_API}/actor-runs/${encodeURIComponent(runId)}`, {
-    headers: authHeaders({ Accept: "application/json" }),
+    headers: authHeaders(apiToken, { Accept: "application/json" }),
     cache: "no-store"
   });
 
@@ -330,6 +324,7 @@ export async function getApifyRunSnapshot(
 }
 
 export async function getApifyDatasetRows(
+  apiToken: string,
   datasetId: string
 ): Promise<ApifyMercadoLibreRow[]> {
   const response = await fetch(
@@ -337,7 +332,7 @@ export async function getApifyDatasetRows(
       datasetId
     )}/items?format=json&clean=true&limit=80`,
     {
-      headers: authHeaders({ Accept: "application/json" }),
+      headers: authHeaders(apiToken, { Accept: "application/json" }),
       cache: "no-store"
     }
   );
