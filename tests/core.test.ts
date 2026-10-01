@@ -5,6 +5,7 @@ import { calculateWorkshopEstimate } from "../src/lib/pricing/workshop-estimate"
 import { calculateCustomerQuote } from "../src/lib/pricing/customer-quote";
 import { calculateRobustPrice } from "../src/lib/pricing/robust-price";
 import { evaluateListing } from "../src/lib/marketplace/evaluate-listing";
+import { inferCompatibilityFromListingText, resolveCompatibilityEvidence } from "../src/lib/marketplace/infer-compatibility";
 import { canonicalizeVehicleBrand, createSearchPlan } from "../src/lib/marketplace/search-plan";
 
 describe("vehicle year input", () => {
@@ -254,5 +255,162 @@ describe("vehicle brand typo tolerance", () => {
         query.toLowerCase().includes("paragolpe trasero nissan sentra")
       )
     ).toBe(true);
+  });
+});
+
+
+describe("listing-text compatibility inference", () => {
+  const golf2015 = {
+    brand: "Volkswagen",
+    model: "Golf",
+    year: 2015,
+    version: "GTI",
+    engine: "2.0"
+  };
+
+  it("rejects a Golf bumper whose published year range ends before 2015", () => {
+    const evidence = inferCompatibilityFromListingText(
+      {
+        itemId: "MLA-GOLF-OLD",
+        title: "Paragolpe Trasero Volkswagen Golf 2007/2011",
+        url: "https://example.com/old-golf",
+        price: 252151,
+        currency: "ARS"
+      },
+      golf2015
+    );
+
+    expect(evidence.status).toBe("incompatible");
+    expect(evidence.confidence).toBe("high");
+    expect(evidence.note).toContain("fuera del rango");
+  });
+
+  it("accepts a Golf bumper whose explicit year range includes 2015", () => {
+    const evidence = inferCompatibilityFromListingText(
+      {
+        itemId: "MLA-GOLF-RANGE",
+        title: "Paragolpe Trasero Volkswagen Golf GTI 2013/2017",
+        url: "https://example.com/golf-range",
+        price: 500000,
+        currency: "ARS"
+      },
+      golf2015
+    );
+
+    expect(evidence.status).toBe("compatible");
+    expect(evidence.confidence).toBe("high");
+  });
+
+  it("accepts Golf Mk7 evidence for a 2015 Golf", () => {
+    const evidence = inferCompatibilityFromListingText(
+      {
+        itemId: "MLA-GOLF-MK7",
+        title: "Paragolpe Trasero Golf Mk7 GTI Original",
+        url: "https://example.com/golf-mk7",
+        price: 600000,
+        currency: "ARS"
+      },
+      golf2015
+    );
+
+    expect(evidence.status).toBe("compatible");
+    expect(evidence.confidence).toBe("medium");
+  });
+
+  it("rejects Golf Mk3 evidence for a 2015 Golf", () => {
+    const evidence = inferCompatibilityFromListingText(
+      {
+        itemId: "MLA-GOLF-MK3",
+        title: "Paragolpe Delantero VW Golf 95 96 97 98 99 Mk3",
+        url: "https://example.com/golf-mk3",
+        price: 304800,
+        currency: "ARS"
+      },
+      golf2015
+    );
+
+    expect(evidence.status).toBe("incompatible");
+  });
+
+  it("uses listing evidence when the Mercado Libre compatibility endpoint is unknown", () => {
+    const resolved = resolveCompatibilityEvidence(
+      {
+        status: "unknown",
+        source: "meli_catalog",
+        note: "HTTP 403 en compatibilidades."
+      },
+      {
+        itemId: "MLA-GOLF-FALLBACK",
+        title: "Paragolpe Trasero Golf GTI 2013-2017 Original",
+        url: "https://example.com/golf-fallback",
+        price: 550000,
+        currency: "ARS"
+      },
+      golf2015
+    );
+
+    expect(resolved.status).toBe("compatible");
+    expect(resolved.source).toBe("listing_text");
+  });
+});
+
+describe("exact part and position filters", () => {
+  const vehicle = {
+    brand: "Volkswagen",
+    model: "Golf",
+    year: 2015,
+    version: "GTI"
+  };
+
+  const damage = {
+    id: "golf-bumper",
+    partName: "Paragolpe",
+    position: "Trasero"
+  };
+
+  it("rejects a front bumper when a rear bumper was requested", () => {
+    const result = evaluateListing(
+      {
+        itemId: "MLA-FRONT",
+        title: "Paragolpe Delantero Volkswagen Golf GTI 2013-2017 Original",
+        url: "https://example.com/front",
+        price: 500000,
+        currency: "ARS",
+        condition: "new",
+        brand: "Volkswagen",
+        compatibility: {
+          status: "compatible",
+          source: "listing_text"
+        }
+      },
+      vehicle,
+      damage
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.rejectionReasons.join(" ")).toContain("posición publicada");
+  });
+
+  it("rejects a spoiler when the full bumper was requested", () => {
+    const result = evaluateListing(
+      {
+        itemId: "MLA-SPOILER",
+        title: "Spoiler De Paragolpe Trasero Golf Mk7 GTI",
+        url: "https://example.com/spoiler",
+        price: 92359,
+        currency: "ARS",
+        condition: "new",
+        brand: "Volkswagen",
+        compatibility: {
+          status: "compatible",
+          source: "listing_text"
+        }
+      },
+      vehicle,
+      damage
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.rejectionReasons.join(" ")).toContain("componente del paragolpe");
   });
 });
