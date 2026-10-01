@@ -637,9 +637,14 @@ export class MercadoLibreClient implements MercadoLibreGateway {
    * Autoparts are often not fully represented in catalog, so using only
    * /products/search can incorrectly return zero marketplace publications.
    */
-  async searchArgentina(query: string): Promise<MarketplaceSearchItem[]> {
+  async searchArgentina(
+    query: string,
+    options?: { useApify?: boolean }
+  ): Promise<MarketplaceSearchItem[]> {
+    const useApify = options?.useApify ?? true;
+
     const [apifyResult, webResult, catalogResult] = await Promise.allSettled([
-      searchMercadoLibreWithApify(query),
+      useApify ? searchMercadoLibreWithApify(query) : Promise.resolve([]),
       this.searchMarketplaceWeb(query),
       this.searchCatalog(query)
     ]);
