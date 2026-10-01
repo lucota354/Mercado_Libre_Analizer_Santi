@@ -79,6 +79,7 @@ export default function HomePage() {
   const [other, setOther] = useState(0);
   const [meliConnected, setMeliConnected] = useState<boolean | null>(null);
   const [searchScraperConfigured, setSearchScraperConfigured] = useState<boolean | null>(null);
+  const [meliConnectionState, setMeliConnectionState] = useState<"connected" | "invalid_session" | "no_session" | null>(null);
   const [yearInput, setYearInput] = useState(String(emptyVehicle.year));
 
   useEffect(() => {
@@ -89,10 +90,15 @@ export default function HomePage() {
         const response = await fetch("/api/auth/mercadolibre/status", {
           cache: "no-store"
         });
-        const data = (await response.json()) as { connected?: boolean; searchScraperConfigured?: boolean };
+        const data = (await response.json()) as {
+          connected?: boolean;
+          searchScraperConfigured?: boolean;
+          connectionState?: "connected" | "invalid_session" | "no_session";
+        };
         if (!cancelled) {
           setMeliConnected(Boolean(data.connected));
           setSearchScraperConfigured(Boolean(data.searchScraperConfigured));
+          setMeliConnectionState(data.connectionState ?? null);
         }
       } catch {
         if (!cancelled) setMeliConnected(false);
@@ -174,9 +180,40 @@ export default function HomePage() {
         body: JSON.stringify({ vehicle, damages })
       });
 
-      const data = (await response.json()) as AnalysisResponse;
+      const raw = await response.text();
+      let data: AnalysisResponse | null = null;
+
+      try {
+        data = raw ? (JSON.parse(raw) as AnalysisResponse) : null;
+      } catch {
+        if (
+          response.status === 504 ||
+          /timeout|timed out|an error occurred/i.test(raw)
+        ) {
+          throw new Error(
+            "La búsqueda tardó demasiado y el servidor cortó la ejecución. Volvé a intentar; el scraper ahora usa una búsqueda rápida."
+          );
+        }
+
+        throw new Error(
+          "El servidor devolvió una respuesta inesperada (HTTP " +
+            response.status +
+            "): " +
+            raw.slice(0, 180)
+        );
+      }
+
       if (!response.ok) {
-        throw new Error(data.error || "No se pudo analizar Mercado Libre.");
+        throw new Error(
+          data?.error ||
+            "No se pudo analizar Mercado Libre (HTTP " +
+              response.status +
+              ")."
+        );
+      }
+
+      if (!data) {
+        throw new Error("El servidor no devolvió datos del análisis.");
       }
 
       setAnalysis(data);
@@ -203,24 +240,31 @@ export default function HomePage() {
         <div>
           <strong>Mercado Libre</strong>
           <span>
-            {meliConnected === null
-              ? "Verificando conexión…"
-              : meliConnected && searchScraperConfigured
-                ? "Cuenta conectada y búsqueda robusta activa."
-                : meliConnected
-                  ? "Cuenta conectada. Falta configurar la búsqueda robusta para obtener publicaciones reales."
-                  : "Conectá tu cuenta para habilitar búsquedas y compatibilidades."}
+            {meliConnected === null || searchScraperConfigured === null
+              ? "Verificando conexiones…"
+              : searchScraperConfigured && meliConnected
+                ? "Búsqueda robusta activa y Mercado Libre conectado."
+                : searchScraperConfigured
+                  ? meliConnectionState === "invalid_session"
+                    ? "Búsqueda robusta activa. La sesión de Mercado Libre quedó inválida; podés reconectarla sin bloquear la búsqueda."
+                    : "Búsqueda robusta activa. Mercado Libre está desconectado; las compatibilidades quedarán para revisión manual."
+                  : meliConnected
+                    ? "Mercado Libre conectado. Falta configurar APIFY_TOKEN para la búsqueda robusta."
+                    : "Falta configurar la búsqueda robusta. Podés conectar Mercado Libre para compatibilidades."}
           </span>
         </div>
-        {meliConnected ? (
+        <div className="connectionActions">
           <span className={searchScraperConfigured ? "status valid" : "status pending"}>
-            {searchScraperConfigured ? "CONECTADO" : "FALTA SCRAPER"}
+            {searchScraperConfigured ? "SCRAPER ACTIVO" : "FALTA SCRAPER"}
           </span>
-        ) : (
-          <a className="primary connectButton" href="/api/auth/mercadolibre/start">
-            Conectar Mercado Libre
-          </a>
-        )}
+          {meliConnected ? (
+            <span className="status valid">ML CONECTADO</span>
+          ) : (
+            <a className="primary connectButton" href="/api/auth/mercadolibre/start">
+              Conectar Mercado Libre
+            </a>
+          )}
+        </div>
       </section>
 
       <section className="card">
@@ -393,7 +437,7 @@ export default function HomePage() {
           type="button"
           disabled={
             loading ||
-            meliConnected !== true ||
+            searchScraperConfigured !== true ||
             validVehicleYear === null ||
             !vehicle.brand ||
             !vehicle.model ||
