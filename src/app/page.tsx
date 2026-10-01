@@ -12,6 +12,7 @@ import { getLaborRatesForVehicleYear } from "@/lib/pricing/labor-rates";
 import { calculateWorkshopEstimate } from "@/lib/pricing/workshop-estimate";
 import { parseVehicleYear } from "@/lib/validation/vehicle-year";
 import ApifyOnboarding from "@/components/ApifyOnboarding";
+import OemResearchPanel from "@/components/OemResearchPanel";
 
 type CandidateResult = {
   listing: CandidateListing;
@@ -82,7 +83,8 @@ const emptyVehicle: VehicleInput = {
   model: "",
   year: 2013,
   version: "",
-  engine: ""
+  engine: "",
+  chassisNumber: ""
 };
 
 const newDamage = (): DamageInput => ({
@@ -232,7 +234,8 @@ export default function HomePage() {
     }
   }
 
-  async function analyze() {
+  async function analyze(damagesOverride?: DamageInput[]) {
+    const damagesToAnalyze = damagesOverride ?? damages;
     setLoading(true);
     setLoadingStatus("Iniciando búsqueda en Mercado Libre…");
     setError("");
@@ -242,7 +245,7 @@ export default function HomePage() {
       const startResponse = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vehicle, damages })
+        body: JSON.stringify({ vehicle, damages: damagesToAnalyze })
       });
 
       const startData = await readJsonResponse<PendingResponse | AnalysisResponse>(
@@ -273,7 +276,7 @@ export default function HomePage() {
         const statusResponse = await fetch("/api/analyze/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vehicle, damages, jobs })
+          body: JSON.stringify({ vehicle, damages: damagesToAnalyze, jobs })
         });
 
         const statusData = await readJsonResponse<
@@ -316,6 +319,16 @@ export default function HomePage() {
       setLoading(false);
       setLoadingStatus("");
     }
+  }
+
+  function useOemAndAnalyze(damageId: string, code: string) {
+    const nextDamages = damages.map((damage) =>
+      damage.id === damageId ? { ...damage, oemCode: code } : damage
+    );
+
+    setDamages(nextDamages);
+    setAnalysis(null);
+    analyze(nextDamages);
   }
 
   return (
@@ -458,6 +471,18 @@ export default function HomePage() {
               }}
             />
           </label>
+          <label>
+            N.º de chasis · opcional
+            <input
+              placeholder="Número de chasis"
+              value={vehicle.chassisNumber ?? ""}
+              onChange={(event) => {
+                setAnalysis(null);
+                setVehicle({ ...vehicle, chassisNumber: event.target.value });
+              }}
+            />
+            <small>Se usa solo para afinar la investigación OEM.</small>
+          </label>
         </div>
 
         {laborRates && validVehicleYear !== null ? (
@@ -538,6 +563,16 @@ export default function HomePage() {
                     }
                   />
                 </label>
+                <label>
+                  OEM · opcional
+                  <input
+                    placeholder="Se completa solo o manualmente"
+                    value={damage.oemCode ?? ""}
+                    onChange={(event) =>
+                      updateDamage(damage.id, { oemCode: event.target.value })
+                    }
+                  />
+                </label>
               </div>
             </article>
           ))}
@@ -554,7 +589,7 @@ export default function HomePage() {
             !vehicle.model ||
             damages.every((damage) => !damage.partName.trim())
           }
-          onClick={analyze}
+          onClick={() => analyze()}
         >
           {loading ? "Analizando Mercado Libre…" : "Buscar, validar y cotizar"}
         </button>
@@ -611,6 +646,22 @@ export default function HomePage() {
                     </strong>
                   </div>
                 </div>
+
+                {group.validCount === 0 && (
+                  <div className="oemSuggestion">
+                    <strong>No hay una pieza original confiable para cotizar.</strong>
+                    <span>
+                      Podés investigar el número OEM en catálogos técnicos y volver a buscar por código.
+                    </span>
+                  </div>
+                )}
+
+                <OemResearchPanel
+                  vehicle={analysis.vehicle}
+                  damage={group.damage}
+                  apifyConnected={apifyConnected === true}
+                  onUseOem={(code) => useOemAndAnalyze(group.damage.id, code)}
+                />
 
                 <div className="candidateList">
                   {group.candidates.map(({ listing, evaluation }) => (
