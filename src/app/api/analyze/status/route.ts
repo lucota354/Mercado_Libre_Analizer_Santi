@@ -22,6 +22,7 @@ import {
   resolveMercadoLibreSession
 } from "@/lib/auth/resolve-meli-session";
 import { parseVehicleYear } from "@/lib/validation/vehicle-year";
+import { resolveApifyAuth } from "@/lib/auth/apify-session";
 
 type RequestBody = {
   vehicle: VehicleInput;
@@ -61,10 +62,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const apifyAuth = resolveApifyAuth(request);
+    if (!apifyAuth) {
+      return NextResponse.json(
+        {
+          error:
+            "La conexión con Apify ya no está disponible. Volvé a conectar tu cuenta."
+        },
+        { status: 401 }
+      );
+    }
+
     const snapshots = await Promise.all(
       body.jobs.map(async (job) => ({
         job,
-        snapshot: await getApifyRunSnapshot(job.runId)
+        snapshot: await getApifyRunSnapshot(apifyAuth.apiToken, job.runId)
       }))
     );
 
@@ -122,7 +134,7 @@ export async function POST(request: Request) {
       const run = snapshots.find(({ job }) => job.damageId === damage.id);
       if (!run?.snapshot.defaultDatasetId) continue;
 
-      const rows = await getApifyDatasetRows(run.snapshot.defaultDatasetId);
+      const rows = await getApifyDatasetRows(apifyAuth.apiToken, run.snapshot.defaultDatasetId);
       const mapped = mapApifyRowsToMarketplaceItems(rows);
       datasetCache.set(damage.id, { rows, mapped });
 
@@ -133,6 +145,7 @@ export async function POST(request: Request) {
 
         if (nextQuery) {
           const nextJob = await startMercadoLibreApifySearch(
+            apifyAuth.apiToken,
             damage.id,
             nextQuery,
             nextQueryIndex
@@ -201,7 +214,7 @@ export async function POST(request: Request) {
       const cached = datasetCache.get(damage.id);
       const rows =
         cached?.rows ??
-        (await getApifyDatasetRows(run.snapshot.defaultDatasetId));
+        (await getApifyDatasetRows(apifyAuth.apiToken, run.snapshot.defaultDatasetId));
       const searchResults = (
         cached?.mapped ?? mapApifyRowsToMarketplaceItems(rows)
       ).slice(0, 20);
