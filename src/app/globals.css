@@ -324,3 +324,21 @@ input[aria-invalid="true"] {
     flex-wrap: wrap;
   }
 }
+
+
+.loadingBox {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #eff8ff;
+  color: #175cd3;
+  border: 1px solid #b2ddff;
+  font-weight: 700;
+}
+
+.providerDiagnostic {
+  margin-top: 7px !important;
+  color: #667085 !important;
+  font-size: .75rem !important;
+  line-height: 1.4;
+}
