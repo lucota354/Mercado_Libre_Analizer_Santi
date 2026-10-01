@@ -22,9 +22,20 @@ export function GET(request: Request) {
   const encrypted = readCookie(request, mercadoLibreSessionCookie.name);
   const session = decryptSession(encrypted);
 
+  const cookiePresent = Boolean(encrypted);
+  const encryptionConfigured = Boolean(process.env.SESSION_ENCRYPTION_KEY);
+  const connected = Boolean(session?.accessToken);
+
   return NextResponse.json({
-    connected: Boolean(session?.accessToken),
+    connected,
     searchScraperConfigured: Boolean(process.env.APIFY_TOKEN),
+    cookiePresent,
+    encryptionConfigured,
+    connectionState: connected
+      ? "connected"
+      : cookiePresent
+        ? "invalid_session"
+        : "no_session",
     expiresAt: session?.expiresAt ?? null,
     userId: session?.userId ?? null
   });
