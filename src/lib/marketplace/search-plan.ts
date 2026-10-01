@@ -106,6 +106,8 @@ export function createSearchPlan(
   const year = vehicle.year ? String(vehicle.year) : "";
   const version = normalize(vehicle.version);
   const engine = normalize(vehicle.engine);
+  const chassisNumber = normalize(vehicle.chassisNumber);
+  const requestedOem = normalize(damage.oemCode);
   const part = normalize(damage.partName);
   const position = normalize(damage.position);
 
@@ -121,6 +123,9 @@ export function createSearchPlan(
    * brand being correct, then progressively add canonical brand/year/OEM hints.
    */
   const queries = unique([
+    requestedOem ? requestedOem : "",
+    requestedOem ? `${requestedOem} ${brand}` : "",
+    requestedOem ? `${part} ${position} ${requestedOem}` : "",
     `${part} ${position} ${model}`,
     `${part} ${position} ${brand} ${model}`,
     `${part} ${brand} ${model}`,
@@ -136,8 +141,11 @@ export function createSearchPlan(
       : "",
     engine
       ? `${part} ${position} ${brand} ${model} ${engine}`
+      : "",
+    chassisNumber
+      ? `${part} ${position} ${brand} ${model} ${chassisNumber}`
       : ""
-  ]).slice(0, 10);
+  ]).slice(0, 12);
 
   return {
     damageId: damage.id,
