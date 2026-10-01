@@ -23,6 +23,14 @@ type AnalysisGroup = {
   foundCount?: number;
   detailedCount?: number;
   validCount: number;
+  providerDiagnostics?: {
+    query: string;
+    runId: string;
+    runStatus: string;
+    rawRows: number;
+    mappedCount: number;
+    note?: string;
+  };
   priceSummary: PriceSummary | null;
   purchaseReference: number | null;
   customerQuote: {
@@ -35,9 +43,30 @@ type AnalysisGroup = {
 };
 
 type AnalysisResponse = {
+  status?: "pending" | "complete";
   vehicle: VehicleInput;
   groups: AnalysisGroup[];
   generatedAt: string;
+  error?: string;
+};
+
+type SearchJob = {
+  damageId: string;
+  runId: string;
+  query: string;
+  queryIndex: number;
+};
+
+type PendingResponse = {
+  status: "pending";
+  jobs: SearchJob[];
+  providerRuns?: Array<{
+    damageId: string;
+    query: string;
+    runId: string;
+    status: string;
+  }>;
+  message?: string;
   error?: string;
 };
 
@@ -72,6 +101,7 @@ export default function HomePage() {
   const [damages, setDamages] = useState<DamageInput[]>([newDamage()]);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState("");
   const [error, setError] = useState("");
   const [bodyworkDays, setBodyworkDays] = useState(0);
   const [paintPanels, setPaintPanels] = useState(0);
@@ -168,59 +198,104 @@ export default function HomePage() {
     );
   };
 
+  async function readJsonResponse<T>(response: Response): Promise<T> {
+    const raw = await response.text();
+
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      throw new Error(
+        "El servidor devolvió una respuesta inesperada (HTTP " +
+          response.status +
+          "): " +
+          raw.slice(0, 180)
+      );
+    }
+  }
+
   async function analyze() {
     setLoading(true);
+    setLoadingStatus("Iniciando búsqueda en Mercado Libre…");
     setError("");
     setAnalysis(null);
 
     try {
-      const response = await fetch("/api/analyze", {
+      const startResponse = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vehicle, damages })
       });
 
-      const raw = await response.text();
-      let data: AnalysisResponse | null = null;
+      const startData = await readJsonResponse<PendingResponse | AnalysisResponse>(
+        startResponse
+      );
 
-      try {
-        data = raw ? (JSON.parse(raw) as AnalysisResponse) : null;
-      } catch {
-        if (
-          response.status === 504 ||
-          /timeout|timed out|an error occurred/i.test(raw)
-        ) {
-          throw new Error(
-            "La búsqueda tardó demasiado y el servidor cortó la ejecución. Volvé a intentar; el scraper ahora usa una búsqueda rápida."
-          );
-        }
-
+      if (!startResponse.ok && startResponse.status !== 202) {
         throw new Error(
-          "El servidor devolvió una respuesta inesperada (HTTP " +
-            response.status +
-            "): " +
-            raw.slice(0, 180)
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          data?.error ||
-            "No se pudo analizar Mercado Libre (HTTP " +
-              response.status +
+          startData.error ||
+            "No se pudo iniciar la búsqueda (HTTP " +
+              startResponse.status +
               ")."
         );
       }
 
-      if (!data) {
-        throw new Error("El servidor no devolvió datos del análisis.");
+      if (startData.status !== "pending" || !("jobs" in startData)) {
+        setAnalysis(startData as AnalysisResponse);
+        return;
       }
 
-      setAnalysis(data);
+      let jobs = startData.jobs;
+      const startedAt = Date.now();
+      const maxWaitMs = 4 * 60 * 1000;
+
+      while (Date.now() - startedAt < maxWaitMs) {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+
+        const statusResponse = await fetch("/api/analyze/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vehicle, damages, jobs })
+        });
+
+        const statusData = await readJsonResponse<
+          PendingResponse | AnalysisResponse
+        >(statusResponse);
+
+        if (!statusResponse.ok && statusResponse.status !== 202) {
+          throw new Error(
+            statusData.error ||
+              "Falló el scraper (HTTP " + statusResponse.status + ")."
+          );
+        }
+
+        if (statusData.status === "pending" && "jobs" in statusData) {
+          jobs = statusData.jobs;
+
+          const statuses =
+            statusData.providerRuns
+              ?.map((run) => run.status)
+              .filter(Boolean)
+              .join(", ") || "RUNNING";
+
+          setLoadingStatus(
+            "Buscando publicaciones reales… Estado: " + statuses
+          );
+          continue;
+        }
+
+        setAnalysis(statusData as AnalysisResponse);
+        setLoadingStatus("");
+        return;
+      }
+
+      throw new Error(
+        "El scraper sigue ejecutándose después de 4 minutos. Revisá la ejecución en Apify e intentá nuevamente."
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Error inesperado.");
     } finally {
       setLoading(false);
+      setLoadingStatus("");
     }
   }
 
@@ -448,6 +523,7 @@ export default function HomePage() {
           {loading ? "Analizando Mercado Libre…" : "Buscar, validar y cotizar"}
         </button>
 
+        {loadingStatus && <div className="loadingBox">{loadingStatus}</div>}
         {error && <div className="errorBox">{error}</div>}
       </section>
 
@@ -473,6 +549,16 @@ export default function HomePage() {
                       {group.foundCount ?? group.candidates.length} publicación/es encontradas ·{" "}
                       {group.validCount} pasan todos los filtros.
                     </p>
+                    {group.providerDiagnostics && (
+                      <p className="providerDiagnostic">
+                        Apify: {group.providerDiagnostics.rawRows} filas ·{" "}
+                        {group.providerDiagnostics.mappedCount} publicaciones mapeadas ·{" "}
+                        consulta: “{group.providerDiagnostics.query}”
+                        {group.providerDiagnostics.note
+                          ? " · " + group.providerDiagnostics.note
+                          : ""}
+                      </p>
+                    )}
                   </div>
                   <div className="quoteNumbers">
                     <span>Costo confiable</span>
