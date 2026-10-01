@@ -14,6 +14,7 @@ import {
 import { createSearchPlan } from "@/lib/marketplace/search-plan";
 import { MercadoLibreClient } from "@/lib/marketplace/mercadolibre-client";
 import { evaluateListing } from "@/lib/marketplace/evaluate-listing";
+import { resolveCompatibilityEvidence } from "@/lib/marketplace/infer-compatibility";
 import { calculateCustomerQuote } from "@/lib/pricing/customer-quote";
 import { calculateRobustPrice } from "@/lib/pricing/robust-price";
 import {
@@ -264,6 +265,11 @@ export async function POST(request: Request) {
           listing.brand = listing.brand ?? search?.brand;
           listing.oemCode = listing.oemCode ?? search?.oemCode;
           listing.description = listing.description ?? search?.description;
+          listing.compatibility = resolveCompatibilityEvidence(
+            compatibility,
+            listing,
+            vehicle
+          );
 
           return {
             listing,
