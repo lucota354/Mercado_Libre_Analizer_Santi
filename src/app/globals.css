@@ -342,3 +342,141 @@ input[aria-invalid="true"] {
   font-size: .75rem !important;
   line-height: 1.4;
 }
+
+
+.statusButton {
+  border: 0;
+  cursor: pointer;
+}
+
+.onboardingCard {
+  border-color: #d6bbfb;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfaff 100%);
+}
+
+.onboardingIntro {
+  margin: -6px 0 20px;
+  color: #667085;
+  line-height: 1.55;
+}
+
+.onboardingSteps {
+  display: grid;
+  gap: 12px;
+}
+
+.onboardingStep {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #eaecf0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.onboardingStep > div {
+  min-width: 0;
+}
+
+.onboardingStep strong {
+  color: #101828;
+}
+
+.onboardingStep p {
+  margin: 6px 0 12px;
+  color: #667085;
+  font-size: .86rem;
+  line-height: 1.55;
+}
+
+.onboardingNumber {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f4ebff;
+  color: #6941c6;
+  font-weight: 900;
+}
+
+.setupLink {
+  display: inline-flex;
+  width: fit-content;
+  text-decoration: none;
+}
+
+.tokenSetup {
+  display: grid;
+}
+
+.tokenRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.tokenRow input {
+  min-width: 0;
+}
+
+.compactBox {
+  margin-top: 10px;
+}
+
+.successBox {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #abefc6;
+  font-weight: 700;
+}
+
+.connectedAccount {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #eaecf0;
+  color: #344054;
+  font-size: .84rem;
+}
+
+.securityNote {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fffaeb;
+  border: 1px solid #fedf89;
+  color: #7a2e0e;
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.onboardingHeaderActions {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.neutralLink {
+  color: #475467;
+}
+
+@media (max-width: 650px) {
+  .tokenRow {
+    grid-template-columns: 1fr;
+  }
+
+  .connectedAccount {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
