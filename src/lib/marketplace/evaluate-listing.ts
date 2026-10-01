@@ -33,6 +33,10 @@ function textOf(listing: CandidateListing) {
   return `${listing.title} ${listing.description ?? ""}`.toLowerCase();
 }
 
+function normalizeOem(value?: string) {
+  return (value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 function normalize(value?: string) {
   return value?.trim().toLocaleLowerCase("es-AR") ?? "";
 }
@@ -138,7 +142,32 @@ export function evaluateListing(
     reasons.push("La publicación declara original/genuino.");
   }
 
-  if (listing.oemCode) {
+  const requestedOem = normalizeOem(damage.oemCode);
+  const listingOem = normalizeOem(listing.oemCode);
+  const searchableOemText = normalizeOem(
+    [listing.title, listing.description].filter(Boolean).join(" ")
+  );
+
+  if (requestedOem) {
+    const exactOemMatch =
+      (listingOem && listingOem === requestedOem) ||
+      searchableOemText.includes(requestedOem);
+
+    if (exactOemMatch) {
+      score += 35;
+      reasons.push(
+        `Coincidencia con el OEM investigado: ${damage.oemCode}.`
+      );
+    } else if (listingOem && listingOem !== requestedOem) {
+      rejectionReasons.push(
+        `OEM incompatible: la publicación informa ${listing.oemCode} y se esperaba ${damage.oemCode}.`
+      );
+    } else {
+      reasons.push(
+        `La publicación no expone el OEM ${damage.oemCode}; requiere validar el código en el detalle.`
+      );
+    }
+  } else if (listing.oemCode) {
     score += 15;
     reasons.push("Incluye código OEM.");
   }
